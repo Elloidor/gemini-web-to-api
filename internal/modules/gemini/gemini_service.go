@@ -62,6 +62,30 @@ func (s *GeminiService) ContinueBrowserChat(ctx context.Context, chatID string, 
 	return result, nil
 }
 
+func (s *GeminiService) RegenerateBrowserChat(ctx context.Context, chatID string, req dto.BrowserChatRegenerateRequest) (*dto.BrowserChatMessageResponse, error) {
+	model := strings.TrimSpace(req.Model)
+	if model == "" {
+		model = "gemini-advanced"
+	}
+	response, err := s.client.RegenerateChat(ctx, chatID, providers.WithModel(model))
+	if err != nil {
+		return nil, err
+	}
+	result := &dto.BrowserChatMessageResponse{
+		ChatID:        chatID,
+		Text:          response.Text,
+		ReasoningText: response.ReasoningText,
+	}
+	if response.Metadata != nil {
+		if value, ok := response.Metadata["cid"].(string); ok && value != "" {
+			result.ChatID = value
+		}
+		result.RequestID, _ = response.Metadata["rid"].(string)
+		result.CandidateID, _ = response.Metadata["rcid"].(string)
+	}
+	return result, nil
+}
+
 func (s *GeminiService) GenerateContent(ctx context.Context, modelID string, req dto.GeminiGenerateRequest) (*dto.GeminiGenerateResponse, error) {
 	// Logic: Extract prompt
 	var promptBuilder strings.Builder

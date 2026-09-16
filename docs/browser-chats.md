@@ -19,6 +19,13 @@ curl "http://localhost:4981/gemini/web/chats/c_EXAMPLE?limit=20" -H "Authorizati
 curl -X POST 'http://localhost:4981/gemini/web/chats/c_EXAMPLE/messages' \
   -H 'Content-Type: application/json' -H "Authorization: Bearer $KEY" \
   -d '{"prompt":"Continue from the browser context","model":"gemini-3.8-flash"}'
+
+# Regenerate the last model answer (browser "redo" arrow behavior):
+# re-sends the last user prompt anchored on the parent turn, the new answer
+# replaces the visible turn; the old one becomes a sibling candidate.
+curl -X POST 'http://localhost:4981/gemini/web/chats/c_EXAMPLE/regenerate' \
+  -H 'Content-Type: application/json' -H "Authorization: Bearer $KEY" \
+  -d '{"model":"gemini-3.8-flash"}'
 ```
 
 The reply returns the persisted `chat_id`, `request_id` (`r_...`) and `candidate_id` (`rc_...`). A read-back of the chat shows the new turn in the same branch with matching IDs.
@@ -85,7 +92,7 @@ On the host this runs from a systemd timer (`gemini-web-cookie-sync.timer`, 60s)
 ## Limitations
 
 - Web RPC is unofficial; Google may change positional payload fields.
-- The browser "regenerate" arrow has no dedicated RPC here; resending the same prompt creates a new turn (both stay in history).
+- The browser "regenerate" arrow is now implemented via `POST /gemini/web/chats/{cid}/regenerate`: the last user prompt is re-sent anchored on the parent turn, so the server swaps the visible answer and keeps the old one as a sibling candidate (reachable in the browser response picker). Regenerating with a different `model` is supported.
 - Chat history does not expose which model answered a past turn.
 - Pro-tier Deep Think requires result polling (TODO).
 - A nonexistent `chat_id` may surface as 502 instead of 404 (TODO).

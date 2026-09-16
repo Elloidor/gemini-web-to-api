@@ -326,6 +326,7 @@ func (g *GeminiController) RegisterBrowserChats(group fiber.Router) {
 	group.Get("/chats", g.HandleListBrowserChats)
 	group.Get("/chats/:chatID", g.HandleReadBrowserChat)
 	group.Post("/chats/:chatID/messages", g.HandleContinueBrowserChat)
+	group.Post("/chats/:chatID/regenerate", g.HandleRegenerateBrowserChat)
 }
 
 func parsePositiveQuery(raw string, fallback, maximum int) (int, error) {
@@ -372,6 +373,18 @@ func (g *GeminiController) HandleContinueBrowserChat(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(common.ErrorToResponse(fmt.Errorf("prompt is required"), "invalid_request_error"))
 	}
 	response, err := g.service.ContinueBrowserChat(c.Context(), c.Params("chatID"), req)
+	if err != nil {
+		return c.Status(fiber.StatusBadGateway).JSON(common.ErrorToResponse(err, "gemini_web_error"))
+	}
+	return c.JSON(response)
+}
+
+func (g *GeminiController) HandleRegenerateBrowserChat(c fiber.Ctx) error {
+	var req dto.BrowserChatRegenerateRequest
+	if err := c.Bind().Body(&req); err != nil && err.Error() != "cannot parse body as JSON" {
+		return c.Status(fiber.StatusBadRequest).JSON(common.ErrorToResponse(err, "invalid_request_error"))
+	}
+	response, err := g.service.RegenerateBrowserChat(c.Context(), c.Params("chatID"), req)
 	if err != nil {
 		return c.Status(fiber.StatusBadGateway).JSON(common.ErrorToResponse(err, "gemini_web_error"))
 	}

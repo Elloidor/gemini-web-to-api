@@ -136,35 +136,70 @@ func (c *Client) ReadChat(ctx context.Context, conversationID string, maxTurns i
 
 // ContinueChat resolves the latest rid/rcid itself and appends a message to an existing browser chat.
 func (c *Client) ContinueChat(ctx context.Context, conversationID, prompt string, options ...GenerateOption) (*Response, error) {
+	return c.continueChat(ctx, conversationID, prompt, false, options...)
+}
+
+// RegenerateChat re-sends the last user prompt against the parent turn of the
+// last model response, so the server produces a sibling candidate the same way
+// the browser "regenerate" arrow does. The old answer stays in history as a
+// sibling; the browser UI exposes candidates through the response picker.
+func (c *Client) RegenerateChat(ctx context.Context, conversationID string, options ...GenerateOption) (*Response, error) {
+	return c.continueChat(ctx, conversationID, "", true, options...)
+}
+
+func (c *Client) continueChat(ctx context.Context, conversationID, prompt string, regenerate bool, options ...GenerateOption) (*Response, error) {
 	lockValue, _ := c.chatLocks.LoadOrStore(conversationID, &sync.Mutex{})
 	chatLock := lockValue.(*sync.Mutex)
 	chatLock.Lock()
 	defer chatLock.Unlock()
 
-	if strings.TrimSpace(prompt) == "" {
+	if !regenerate && strings.TrimSpace(prompt) == "" {
 		return nil, fmt.Errorf("prompt is required")
 	}
 	history, err := c.ReadChat(ctx, conversationID, 10, "")
 	if err != nil {
 		return nil, err
 	}
-
-	var latest *ChatTurn
-	for i := len(history.Turns) - 1; i >= 0; i-- {
-		turn := &history.Turns[i]
-		if turn.RequestID != "" && turn.CandidateID != "" {
-			latest = turn
-			break
-		}
+	if len(history.Turns) == 0 {
+		return nil, fmt.Errorf("chat %s is empty", conversationID)
 	}
-	if latest == nil {
+
+	last := &history.Turns[len(history.Turns)-1]
+	if last.RequestID == "" || last.CandidateID == "" {
 		return nil, fmt.Errorf("chat %s has no completed model response to continue", conversationID)
 	}
 
-	metadata := &SessionMetadata{
-		ConversationID: conversationID,
-		ResponseID:     latest.RequestID,
-		ChoiceID:       latest.CandidateID,
+	var metadata *SessionMetadata
+	if regenerate {
+		// The last turn is the model answer being replaced. Its prompt text is
+		// re-sent verbatim; the continuation anchor is the *parent* turn so the
+		// server attaches the new answer as a sibling candidate.
+		prompt = last.UserText
+		if strings.TrimSpace(prompt) == "" {
+			return nil, fmt.Errorf("chat %s last turn has no user prompt to regenerate", conversationID)
+		}
+		metadata = &SessionMetadata{
+			ConversationID: conversationID,
+		}
+		if len(history.Turns) >= 2 {
+			parent := &history.Turns[len(history.Turns)-2]
+			if parent.RequestID != "" && parent.CandidateID != "" {
+				metadata.ResponseID = parent.RequestID
+				metadata.ChoiceID = parent.CandidateID
+			}
+		}
+		if metadata.ResponseID == "" {
+			// Single-turn chat: regenerate anchors on an empty parent context
+			// (the server treats it as a first-turn sibling).
+			metadata.ResponseID = ""
+			metadata.ChoiceID = ""
+		}
+	} else {
+		metadata = &SessionMetadata{
+			ConversationID: conversationID,
+			ResponseID:     last.RequestID,
+			ChoiceID:       last.CandidateID,
+		}
 	}
 	return c.generateContent(ctx, prompt, metadata, options...)
 }

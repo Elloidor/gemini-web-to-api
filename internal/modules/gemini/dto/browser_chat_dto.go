@@ -6,6 +6,13 @@ type BrowserChatMessageRequest struct {
 	Model  string `json:"model,omitempty"`
 }
 
+// BrowserChatRegenerateRequest re-rolls the last model answer as a sibling
+// candidate (same behavior as the browser regenerate arrow). The last user
+// prompt is re-sent automatically; only the model can be chosen.
+type BrowserChatRegenerateRequest struct {
+	Model string `json:"model,omitempty"`
+}
+
 // BrowserChatMessageResponse identifies the new turn written to the browser chat.
 type BrowserChatMessageResponse struct {
 	ChatID        string `json:"chat_id"`
