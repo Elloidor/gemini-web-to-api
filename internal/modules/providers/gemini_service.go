@@ -631,7 +631,14 @@ func (c *Client) generateContent(ctx context.Context, prompt string, metadata *S
 	}
 
 	requestedModel := config.Model
-	resolvedModel, found := resolveAvailableModel(requestedModel, c.cachedModels)
+	resolvedModel := requestedModel
+	found := false
+	if _, ok := webModelIDs[requestedModel]; ok {
+		// Web-catalog model with a known internal hash: bypass the account catalog.
+		found = true
+	} else {
+		resolvedModel, found = resolveAvailableModel(requestedModel, c.cachedModels)
+	}
 	config.Model = resolvedModel
 	at := c.at
 	cookieHdr := c.cookieHeader
@@ -657,6 +664,7 @@ func (c *Client) generateContent(ctx context.Context, prompt string, metadata *S
 	}
 
 	requestID := strings.ToUpper(uuid.NewString())
+	_, modelSurface := modelSelectorFor(resolvedModel)
 	inner := buildGenerateInner(prompt, uploadedFiles, config.Model, language, requestID, c.defaultTemporary, metadata)
 
 	innerJSON, _ := json.Marshal(inner)
@@ -730,12 +738,14 @@ func (c *Client) generateContent(ctx context.Context, prompt string, metadata *S
 		if c.defaultTemporary {
 			modeFlag = 1
 		}
-		traceID := strings.ReplaceAll(uuid.NewString(), "-", "")[:16]
+		modelID, modelSelector := modelSelectorFor(resolvedModel)
 		extHeader := fmt.Sprintf(
-			`[1,null,null,null,"%s",null,null,%d,[4,5,6,8],null,null,2,null,null,6,1,"%s"]`,
-			traceID, modeFlag, strings.ToUpper(uuid.NewString()),
+			`[1,null,null,null,"%s",null,null,%d,[4,5,6,8,4,5,6,8],null,null,2,null,null,%d,%d,"%s"]`,
+			modelID, modeFlag, modelSelector, modelSurface, strings.ToUpper(uuid.NewString()),
 		)
 		httpReq.Header.Set("x-goog-ext-525001261-jspb", extHeader)
+		httpReq.Header.Set("x-goog-ext-73010989-jspb", "[0]")
+		httpReq.Header.Set("x-goog-ext-73010990-jspb", "[0,0,0]")
 		if cookieHdr != "" {
 			httpReq.Header.Set("Cookie", cookieHdr)
 		}
@@ -872,6 +882,42 @@ func (c *Client) downloadGeneratedImage(ctx context.Context, rawURL, cookieHeade
 		return "", fmt.Errorf("generated image exceeds %d byte limit", maxGeneratedImageBytes)
 	}
 	return base64.StdEncoding.EncodeToString(body), nil
+}
+
+// webModelIDs maps catalog model IDs onto internal Gemini Web model hashes
+// (verified against boq_assistant-bard-web-server_20260910.05_p2 captures).
+var webModelIDs = map[string]struct {
+	id       string
+	selector int
+}{
+	"gemini-3.8-flash":                 {id: "56fdd199312815e2", selector: 1},
+	"gemini-3-flash":                   {id: "fbb127bbb056c959", selector: 1},
+	"gemini-3-flash-thinking":          {id: "5bf011840784117a", selector: 2},
+	"gemini-3.1-pro":                   {id: "e6fa609c3fa255c0", selector: 3},
+	"gemini-3-pro":                     {id: "9d8ca3786ebdfbea", selector: 3},
+	"gemini-3.5-flash-lite":            {id: "8c46e95b1a07cecc", selector: 6},
+	"gemini-3.8-flash-plus":            {id: "56fdd199312815e2", selector: 1},
+	"gemini-3.8-flash-advanced":        {id: "56fdd199312815e2", selector: 1},
+	"gemini-3-flash-thinking-plus":     {id: "e051ce1aa80aa576", selector: 2},
+	"gemini-3-pro-plus":                {id: "e6fa609c3fa255c0", selector: 3},
+	"gemini-3-pro-advanced":            {id: "e6fa609c3fa255c0", selector: 3},
+	"gemini-3-flash-thinking-advanced": {id: "e051ce1aa80aa576", selector: 2},
+	"gemini-3.1-flash-lite":            {id: "8c46e95b1a07cecc", selector: 6},
+	"gemini-3.5-flash":                 {id: "56fdd199312815e2", selector: 1},
+	"gemini-3-flash-plus":              {id: "56fdd199312815e2", selector: 1},
+	"gemini-3-flash-advanced":          {id: "56fdd199312815e2", selector: 1},
+	"gemini-advanced":                  {id: "e6fa609c3fa255c0", selector: 3},
+	"gemini-3-flash-preview":           {id: "fbb127bbb056c959", selector: 1},
+}
+
+// modelSelectorFor resolves the internal model hash and tier selector used in
+// the x-goog-ext-525001261-jspb header. When no mapping exists the header keeps
+// a random trace ID and the account default model answers.
+func modelSelectorFor(model string) (string, int) {
+	if entry, ok := webModelIDs[model]; ok {
+		return entry.id, entry.selector
+	}
+	return strings.ReplaceAll(uuid.NewString(), "-", "")[:16], 1
 }
 
 func resolveAvailableModel(requested string, models []ModelInfo) (string, bool) {

@@ -160,6 +160,9 @@ type GenerationConfig struct {
 // GeminiGenerateResponse represents a Gemini generate response
 type GeminiGenerateResponse struct {
 	Candidates    []Candidate    `json:"candidates"`
+	ChatID        string         `json:"chat_id,omitempty"`
+	RequestID     string         `json:"request_id,omitempty"`
+	CandidateID   string         `json:"candidate_id,omitempty"`
 	UsageMetadata *UsageMetadata `json:"usageMetadata,omitempty"`
 }
 

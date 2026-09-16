@@ -41,7 +41,7 @@ func (s *GeminiService) ReadBrowserChat(ctx context.Context, chatID string, maxT
 func (s *GeminiService) ContinueBrowserChat(ctx context.Context, chatID string, req dto.BrowserChatMessageRequest) (*dto.BrowserChatMessageResponse, error) {
 	model := strings.TrimSpace(req.Model)
 	if model == "" {
-		model = "gemini-auto"
+		model = "gemini-advanced"
 	}
 	response, err := s.client.ContinueChat(ctx, chatID, req.Prompt, providers.WithModel(model))
 	if err != nil {
@@ -144,7 +144,7 @@ func (s *GeminiService) GenerateContent(ctx context.Context, modelID string, req
 		}
 	}
 
-	return &dto.GeminiGenerateResponse{
+	result := &dto.GeminiGenerateResponse{
 		Candidates: []dto.Candidate{
 			{
 				Index: 0,
@@ -158,7 +158,15 @@ func (s *GeminiService) GenerateContent(ctx context.Context, modelID string, req
 		UsageMetadata: &dto.UsageMetadata{
 			TotalTokenCount: 0,
 		},
-	}, nil
+	}
+	if response.Metadata != nil {
+		if value, ok := response.Metadata["cid"].(string); ok && value != "" {
+			result.ChatID = value
+		}
+		result.RequestID, _ = response.Metadata["rid"].(string)
+		result.CandidateID, _ = response.Metadata["rcid"].(string)
+	}
+	return result, nil
 }
 
 func extensionForMimeType(mimeType string) string {

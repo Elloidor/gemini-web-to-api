@@ -171,6 +171,7 @@ Your Gemini Web To API is running at `http://localhost:4981` 🎉
 - 🍪 **Live Cookie Sync**: Re-read browser-exported auth cookies before each Gemini RPC
 
 See [Image generation and image inputs](docs/image-generation.md) for tested examples, limitations and security guidance.
+See [Browser chats & real model selection](docs/browser-chats.md) for continuing `gemini.google.com` chats and selecting the actual backend model via `x-goog-ext` headers.
 
 ---
 
