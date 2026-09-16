@@ -96,4 +96,3 @@ func TestParseResponseHandlesBardErrorInfo(t *testing.T) {
 		t.Fatalf("Expected error to contain %q, got: %v", expectedSubstr, err)
 	}
 }
-

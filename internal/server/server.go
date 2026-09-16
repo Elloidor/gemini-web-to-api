@@ -89,4 +89,3 @@ func RegisterFiberLifecycle(lc fx.Lifecycle, app *fiber.App, cfg *configs.Config
 		},
 	})
 }
-

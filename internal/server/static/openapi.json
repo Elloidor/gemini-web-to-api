@@ -388,6 +388,111 @@
                     }
                 }
             }
+        },
+        "/gemini/web/chats": {
+            "get": {
+                "summary": "List Gemini Web browser chats",
+                "description": "Lists chats created in gemini.google.com for the authenticated browser account.",
+                "tags": [
+                    "Gemini Web"
+                ],
+                "parameters": [
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "type": "integer",
+                        "default": 13
+                    },
+                    {
+                        "name": "cursor",
+                        "in": "query",
+                        "type": "string"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Browser chat page",
+                        "schema": {
+                            "$ref": "#/definitions/providers.ChatPage"
+                        }
+                    }
+                }
+            }
+        },
+        "/gemini/web/chats/{chatID}": {
+            "get": {
+                "summary": "Read a Gemini Web browser chat",
+                "description": "Reads persisted turns and cid/rid/rcid metadata from a browser chat.",
+                "tags": [
+                    "Gemini Web"
+                ],
+                "parameters": [
+                    {
+                        "name": "chatID",
+                        "in": "path",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "type": "integer",
+                        "default": 10
+                    },
+                    {
+                        "name": "cursor",
+                        "in": "query",
+                        "type": "string"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Browser chat history",
+                        "schema": {
+                            "$ref": "#/definitions/providers.ChatHistoryPage"
+                        }
+                    }
+                }
+            }
+        },
+        "/gemini/web/chats/{chatID}/messages": {
+            "post": {
+                "summary": "Continue a Gemini Web browser chat",
+                "description": "Appends a message to the currently selected browser-visible branch.",
+                "tags": [
+                    "Gemini Web"
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "parameters": [
+                    {
+                        "name": "chatID",
+                        "in": "path",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/dto.BrowserChatMessageRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Persisted browser chat reply",
+                        "schema": {
+                            "$ref": "#/definitions/dto.BrowserChatMessageResponse"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -998,6 +1103,10 @@
                     "items": {
                         "$ref": "#/definitions/gemini-web-to-api_internal_modules_openai_dto.ToolDefinition"
                     }
+                },
+                "chat_id": {
+                    "type": "string",
+                    "description": "Existing gemini.google.com conversation ID (c_...) to continue"
                 }
             }
         },
@@ -1024,6 +1133,15 @@
                 },
                 "usage": {
                     "$ref": "#/definitions/gemini-web-to-api_internal_commons_models.Usage"
+                },
+                "chat_id": {
+                    "type": "string"
+                },
+                "request_id": {
+                    "type": "string"
+                },
+                "candidate_id": {
+                    "type": "string"
                 }
             }
         },
@@ -1109,6 +1227,107 @@
                     "items": {
                         "type": "integer"
                     }
+                }
+            }
+        },
+        "providers.ChatListItem": {
+            "type": "object",
+            "properties": {
+                "chat_id": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "integer",
+                    "format": "int64"
+                }
+            }
+        },
+        "providers.ChatPage": {
+            "type": "object",
+            "properties": {
+                "chats": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/providers.ChatListItem"
+                    }
+                },
+                "next_cursor": {
+                    "type": "string"
+                }
+            }
+        },
+        "providers.ChatTurn": {
+            "type": "object",
+            "properties": {
+                "request_id": {
+                    "type": "string"
+                },
+                "candidate_id": {
+                    "type": "string"
+                },
+                "user_text": {
+                    "type": "string"
+                },
+                "model_text": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "integer",
+                    "format": "int64"
+                }
+            }
+        },
+        "providers.ChatHistoryPage": {
+            "type": "object",
+            "properties": {
+                "chat_id": {
+                    "type": "string"
+                },
+                "turns": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/providers.ChatTurn"
+                    }
+                },
+                "next_cursor": {
+                    "type": "string"
+                }
+            }
+        },
+        "dto.BrowserChatMessageRequest": {
+            "type": "object",
+            "required": [
+                "prompt"
+            ],
+            "properties": {
+                "prompt": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                }
+            }
+        },
+        "dto.BrowserChatMessageResponse": {
+            "type": "object",
+            "properties": {
+                "chat_id": {
+                    "type": "string"
+                },
+                "request_id": {
+                    "type": "string"
+                },
+                "candidate_id": {
+                    "type": "string"
+                },
+                "text": {
+                    "type": "string"
+                },
+                "reasoning_text": {
+                    "type": "string"
                 }
             }
         }

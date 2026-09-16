@@ -48,8 +48,23 @@ func (s *OpenAIService) CreateChatCompletion(ctx context.Context, req dto.ChatCo
 		return nil, err
 	}
 
-	// Logic: Build Prompt
-	prompt := utils.BuildPromptFromMessages(modelMessages, "")
+	// Logic: Build Prompt. With chat_id only the newest user message is appended;
+	// resending the whole array would duplicate browser history.
+	prompt := ""
+	if req.ChatID != "" {
+		for i := len(modelMessages) - 1; i >= 0; i-- {
+			message := modelMessages[i]
+			if strings.EqualFold(message.Role, "user") && strings.TrimSpace(message.Content) != "" {
+				if len(message.Attachments) > 0 {
+					return nil, fmt.Errorf("chat_id continuation currently accepts text messages only")
+				}
+				prompt = strings.TrimSpace(message.Content)
+				break
+			}
+		}
+	} else {
+		prompt = utils.BuildPromptFromMessages(modelMessages, "")
+	}
 	if prompt == "" {
 		return nil, fmt.Errorf("no valid content in messages")
 	}
@@ -62,16 +77,24 @@ func (s *OpenAIService) CreateChatCompletion(ctx context.Context, req dto.ChatCo
 	if req.Model != "" {
 		opts = append(opts, providers.WithModel(req.Model))
 	}
-	inputFiles, err := providers.InputFilesFromAttachments(modelMessages)
-	if err != nil {
-		return nil, err
-	}
-	if len(inputFiles) > 0 {
-		opts = append(opts, providers.WithInputFiles(inputFiles))
+	if req.ChatID == "" {
+		inputFiles, err := providers.InputFilesFromAttachments(modelMessages)
+		if err != nil {
+			return nil, err
+		}
+		if len(inputFiles) > 0 {
+			opts = append(opts, providers.WithInputFiles(inputFiles))
+		}
 	}
 
 	// Logic: Call Provider
-	response, err := s.client.GenerateContent(ctx, prompt, opts...)
+	var response *providers.Response
+	var err error
+	if req.ChatID != "" {
+		response, err = s.client.ContinueChat(ctx, req.ChatID, prompt, opts...)
+	} else {
+		response, err = s.client.GenerateContent(ctx, prompt, opts...)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +136,7 @@ func (s *OpenAIService) CreateChatCompletion(ctx context.Context, req dto.ChatCo
 	message.ReasoningContent = response.ReasoningText
 
 	// Logic: Construct Response
-	return &dto.ChatCompletionResponse{
+	result := &dto.ChatCompletionResponse{
 		ID:      fmt.Sprintf("chatcmpl-%d", time.Now().Unix()),
 		Object:  "chat.completion",
 		Created: time.Now().Unix(),
@@ -130,7 +153,18 @@ func (s *OpenAIService) CreateChatCompletion(ctx context.Context, req dto.ChatCo
 			CompletionTokens: 0,
 			TotalTokens:      0,
 		},
-	}, nil
+	}
+	if req.ChatID != "" {
+		result.ChatID = req.ChatID
+		if response.Metadata != nil {
+			if value, ok := response.Metadata["cid"].(string); ok && value != "" {
+				result.ChatID = value
+			}
+			result.RequestID, _ = response.Metadata["rid"].(string)
+			result.CandidateID, _ = response.Metadata["rcid"].(string)
+		}
+	}
+	return result, nil
 }
 
 func (s *OpenAIService) CreateImageGeneration(ctx context.Context, req dto.ImageGenerationRequest) (*dto.ImageGenerationResponse, error) {

@@ -4,34 +4,34 @@ import "testing"
 
 func TestExtractThinkingAndText(t *testing.T) {
 	tests := []struct {
-		name          string
-		input         string
-		wantThinking  string
-		wantText      string
+		name         string
+		input        string
+		wantThinking string
+		wantText     string
 	}{
 		{
-			name:          "No thinking tokens",
-			input:         "Hello world",
-			wantThinking:  "",
-			wantText:      "Hello world",
+			name:         "No thinking tokens",
+			input:        "Hello world",
+			wantThinking: "",
+			wantText:     "Hello world",
 		},
 		{
-			name:          "Standard tags with thought",
-			input:         "Hello! <ctrl94>thought\nThinking process...\n<ctrl95>Actual response here",
-			wantThinking:  "Thinking process...",
-			wantText:      "Hello! Actual response here",
+			name:         "Standard tags with thought",
+			input:        "Hello! <ctrl94>thought\nThinking process...\n<ctrl95>Actual response here",
+			wantThinking: "Thinking process...",
+			wantText:     "Hello! Actual response here",
 		},
 		{
-			name:          "No end tag",
-			input:         "Hello! <ctrl94>thought\nStill thinking...",
-			wantThinking:  "Still thinking...",
-			wantText:      "Hello!",
+			name:         "No end tag",
+			input:        "Hello! <ctrl94>thought\nStill thinking...",
+			wantThinking: "Still thinking...",
+			wantText:     "Hello!",
 		},
 		{
-			name:          "Alternate start tag",
-			input:         "<ctrl94>\nThinking...\n<ctrl95>\nDone",
-			wantThinking:  "Thinking...",
-			wantText:      "Done",
+			name:         "Alternate start tag",
+			input:        "<ctrl94>\nThinking...\n<ctrl95>\nDone",
+			wantThinking: "Thinking...",
+			wantText:     "Done",
 		},
 	}
 

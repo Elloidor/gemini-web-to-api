@@ -89,4 +89,3 @@ func taskToDTO(t *researchTask) dto.InteractionResponse {
 	}
 	return resp
 }
-

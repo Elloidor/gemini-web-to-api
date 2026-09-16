@@ -155,6 +155,7 @@ type ToolChoiceObject struct {
 // ChatCompletionRequest represents OpenAI chat completion request
 type ChatCompletionRequest struct {
 	Model         string                  `json:"model"`
+	ChatID        string                  `json:"chat_id,omitempty"`
 	Messages      []ChatCompletionMessage `json:"messages"`
 	Tools         []ToolDefinition        `json:"tools,omitempty"`
 	ToolChoiceRaw json.RawMessage         `json:"tool_choice,omitempty" swagignore:"true"` // @SchemaType object
@@ -243,12 +244,15 @@ type ChatCompletionResponseMessage struct {
 
 // ChatCompletionResponse represents OpenAI chat completion response
 type ChatCompletionResponse struct {
-	ID      string       `json:"id"`
-	Object  string       `json:"object"`
-	Created int64        `json:"created"`
-	Model   string       `json:"model"`
-	Choices []Choice     `json:"choices"`
-	Usage   models.Usage `json:"usage"`
+	ID          string       `json:"id"`
+	Object      string       `json:"object"`
+	Created     int64        `json:"created"`
+	Model       string       `json:"model"`
+	ChatID      string       `json:"chat_id,omitempty"`
+	RequestID   string       `json:"request_id,omitempty"`
+	CandidateID string       `json:"candidate_id,omitempty"`
+	Choices     []Choice     `json:"choices"`
+	Usage       models.Usage `json:"usage"`
 }
 
 // Choice represents a response choice

@@ -167,6 +167,8 @@ Your Gemini Web To API is running at `http://localhost:4981` 🎉
 - 📝 **Well Documented**: Interactive API docs at `/docs`
 - 🖼️ **Image Generation**: OpenAI-compatible text-to-image with authenticated `b64_json` output
 - 🧩 **Image Inputs**: Remote URLs, `data:` URLs and multiple reference images in chat requests
+- 💬 **Browser Chat Continuation**: List, read and append to chats created in `gemini.google.com`
+- 🍪 **Live Cookie Sync**: Re-read browser-exported auth cookies before each Gemini RPC
 
 See [Image generation and image inputs](docs/image-generation.md) for tested examples, limitations and security guidance.
 
@@ -179,7 +181,10 @@ See [Image generation and image inputs](docs/image-generation.md) for tested exa
 | Variable                  | Required | Default | Description                                        |
 | ------------------------- | -------- | ------- | -------------------------------------------------- |
 | `GEMINI_1PSID`            | ✅ Yes   | —       | Main session cookie from Gemini                    |
-| `GEMINI_1PSIDTS`          | ✅ Yes   | —       | Timestamp cookie (prevents auth errors)            |
+| `GEMINI_1PSIDTS`          | Conditional | —       | Timestamp cookie; omit when `GEMINI_COOKIE_SYNC_FILE` is used |
+| `GEMINI_COOKIE_SYNC_FILE` | ❌ No    | —       | JSON file with live browser cookies, re-read before each RPC |
+| `GEMINI_BROWSER_CHATS_ENABLED` | ❌ No | `false` | Expose `/gemini/web/*` browser chat continuation API |
+| `GEMINI_BROWSER_CHATS_API_KEY` | Conditional | — | API key (min 32 chars) required when browser chats are enabled |
 | `GEMINI_REFRESH_INTERVAL` | ❌ No    | `30`    | Cookie rotation interval (minutes)                 |
 | `GEMINI_MAX_RETRIES`      | ❌ No    | `3`     | Max retry attempts when an API call fails          |
 | `GEMINI_TEMPORARY`        | ❌ No    | `false` | Enable stateless/incognito mode for all requests   |
@@ -255,6 +260,39 @@ curl -X POST http://localhost:4981/openai/v1/chat/completions \
     "model": "gemini-advanced",
     "messages": [{"role": "user", "content": "What is AI?"}],
     "stream": false
+  }'
+```
+
+### Continue a browser chat
+
+Chats created manually in `gemini.google.com` are exposed through the Web extension. It is **disabled by default**; enable it with `GEMINI_BROWSER_CHATS_ENABLED=true` and a `GEMINI_BROWSER_CHATS_API_KEY` (min 32 chars). Every request must carry the key as `Authorization: Bearer <key>` or `?key=<key>`:
+
+```bash
+KEY="$GEMINI_BROWSER_CHATS_API_KEY"
+
+# List browser chats
+curl "http://localhost:4981/gemini/web/chats?limit=10" -H "Authorization: Bearer $KEY"
+
+# Read one chat
+curl "http://localhost:4981/gemini/web/chats/c_EXAMPLE?limit=20" -H "Authorization: Bearer $KEY"
+
+# Append a message to the same browser-visible branch
+curl -X POST 'http://localhost:4981/gemini/web/chats/c_EXAMPLE/messages' \
+  -H 'Content-Type: application/json' -H "Authorization: Bearer $KEY" \
+  -d '{"prompt":"Continue from the browser context","model":"gemini-advanced"}'
+```
+
+The reply includes the persisted `chat_id`, `request_id` (`r_...`) and `candidate_id` (`rc_...`). For long-lived deployments, run `scripts/sync_cdp_cookies.py` against a logged-in Chrome CDP endpoint and mount its output as `GEMINI_COOKIE_SYNC_FILE`.
+
+The OpenAI-compatible endpoint accepts the same extension. Only the newest user message is appended, so browser history is not duplicated:
+
+```bash
+curl -X POST 'http://localhost:4981/openai/v1/chat/completions' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model":"gemini-advanced",
+    "chat_id":"c_EXAMPLE",
+    "messages":[{"role":"user","content":"Continue this browser chat"}]
   }'
 ```
 

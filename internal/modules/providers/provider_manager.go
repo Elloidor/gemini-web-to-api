@@ -40,10 +40,10 @@ func (f *Factory) List() []string {
 
 // ProviderManager manages provider instances
 type ProviderManager struct {
-	factory       *Factory
-	log           *zap.Logger
-	selectedType  string
-	selectedName  string
+	factory      *Factory
+	log          *zap.Logger
+	selectedType string
+	selectedName string
 }
 
 // NewProviderManager creates a new provider manager (no concrete imports to avoid cycles)
@@ -95,8 +95,8 @@ func (pm *ProviderManager) InitAllProviders(ctx context.Context) {
 		if err := provider.Init(ctx); err != nil {
 			// For Gemini specifically, log a more detailed error since authentication issues are common
 			if name == "gemini" {
-				pm.log.Error("Gemini provider initialization failed - check your cookies in config.yml. Common issues:", 
-					zap.String("provider", name), 
+				pm.log.Error("Gemini provider initialization failed - check your cookies in config.yml. Common issues:",
+					zap.String("provider", name),
 					zap.Error(err),
 					zap.String("tip1", "__Secure-1PSID may be expired"),
 					zap.String("tip2", "__Secure-1PSIDTS may be missing or invalid"),

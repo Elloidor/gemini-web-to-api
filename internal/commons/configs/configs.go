@@ -1,17 +1,19 @@
 package configs
 
 import (
+	"crypto/subtle"
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
 
 type Config struct {
-	Gemini GeminiConfig
-	Claude ClaudeConfig
-	OpenAI OpenAIConfig
+	Gemini    GeminiConfig
+	Claude    ClaudeConfig
+	OpenAI    OpenAIConfig
 	Server    ServerConfig
 	RateLimit RateLimitConfig
 	LogLevel  string
@@ -24,12 +26,15 @@ type RateLimitConfig struct {
 }
 
 type GeminiConfig struct {
-	Secure1PSID     string
-	Secure1PSIDTS   string
-	RefreshInterval int
-	MaxRetries      int
-	Cookies         string
-	Temporary       bool
+	Secure1PSID         string
+	Secure1PSIDTS       string
+	RefreshInterval     int
+	MaxRetries          int
+	Cookies             string
+	CookieSyncFile      string
+	BrowserChatsEnabled bool
+	BrowserChatsAPIKey  string
+	Temporary           bool
 }
 
 type ClaudeConfig struct {
@@ -45,7 +50,7 @@ type OpenAIConfig struct {
 }
 
 type ServerConfig struct {
-	Port     string
+	Port string
 }
 
 const (
@@ -63,7 +68,7 @@ func New() (*Config, error) {
 
 	// Server
 	cfg.Server.Port = getEnv("PORT", defaultServerPort)
-	
+
 	// General
 	cfg.LogLevel = getEnv("LOG_LEVEL", defaultLogLevel)
 
@@ -76,6 +81,9 @@ func New() (*Config, error) {
 	cfg.Gemini.Secure1PSID = os.Getenv("GEMINI_1PSID")
 	cfg.Gemini.Secure1PSIDTS = os.Getenv("GEMINI_1PSIDTS")
 	cfg.Gemini.Cookies = os.Getenv("GEMINI_COOKIES")
+	cfg.Gemini.CookieSyncFile = os.Getenv("GEMINI_COOKIE_SYNC_FILE")
+	cfg.Gemini.BrowserChatsEnabled = getEnvBool("GEMINI_BROWSER_CHATS_ENABLED", false)
+	cfg.Gemini.BrowserChatsAPIKey = os.Getenv("GEMINI_BROWSER_CHATS_API_KEY")
 	cfg.Gemini.RefreshInterval = getEnvInt("GEMINI_REFRESH_INTERVAL", defaultGeminiRefreshInterval)
 	cfg.Gemini.MaxRetries = getEnvInt("GEMINI_MAX_RETRIES", defaultGeminiMaxRetries)
 	cfg.Gemini.Temporary = getEnvBool("GEMINI_TEMPORARY", false)
@@ -92,16 +100,19 @@ func New() (*Config, error) {
 func (c *Config) Validate() error {
 	var missingVars []string
 
-	// Check Gemini configuration - at least one of these should be present
-	if c.Gemini.Secure1PSID == "" {
-		missingVars = append(missingVars, "GEMINI_1PSID")
-	}
+	// A browser cookie sync file can provide both required cookies at startup.
+	if c.Gemini.CookieSyncFile == "" {
+		if c.Gemini.Secure1PSID == "" {
+			missingVars = append(missingVars, "GEMINI_1PSID")
+		}
 
-	if c.Gemini.Secure1PSID != "" {
-		// If PSID is present, we need at least one of these
-		if c.Gemini.Secure1PSIDTS == "" {
+		if c.Gemini.Secure1PSID != "" && c.Gemini.Secure1PSIDTS == "" {
 			missingVars = append(missingVars, "GEMINI_1PSIDTS")
 		}
+	}
+
+	if c.Gemini.BrowserChatsEnabled && len(c.Gemini.BrowserChatsAPIKey) < 32 {
+		return fmt.Errorf("GEMINI_BROWSER_CHATS_API_KEY must contain at least 32 characters when browser chats are enabled")
 	}
 
 	// Check Server port is valid
@@ -118,6 +129,17 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+func (c *Config) BrowserChatAuthorized(authorization, explicitKey string) bool {
+	if !c.Gemini.BrowserChatsEnabled || c.Gemini.BrowserChatsAPIKey == "" {
+		return false
+	}
+	candidate := strings.TrimSpace(explicitKey)
+	if candidate == "" && strings.HasPrefix(strings.ToLower(authorization), "bearer ") {
+		candidate = strings.TrimSpace(authorization[len("Bearer "):])
+	}
+	return subtle.ConstantTimeCompare([]byte(candidate), []byte(c.Gemini.BrowserChatsAPIKey)) == 1
 }
 
 func getEnv(key, defaultValue string) string {

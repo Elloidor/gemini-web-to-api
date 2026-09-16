@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -318,6 +319,63 @@ func (g *GeminiController) Register(group fiber.Router) {
 	group.Post("/deepresearch/stream", g.HandleDeepResearchStream)
 	group.Post("/interactions", g.HandleInteractionCreate)
 	group.Get("/interactions/:id", g.HandleInteractionGet)
+}
+
+// RegisterBrowserChats exposes browser-history RPCs separately from the official-compatible API.
+func (g *GeminiController) RegisterBrowserChats(group fiber.Router) {
+	group.Get("/chats", g.HandleListBrowserChats)
+	group.Get("/chats/:chatID", g.HandleReadBrowserChat)
+	group.Post("/chats/:chatID/messages", g.HandleContinueBrowserChat)
+}
+
+func parsePositiveQuery(raw string, fallback, maximum int) (int, error) {
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 || value > maximum {
+		return 0, fmt.Errorf("must be between 1 and %d", maximum)
+	}
+	return value, nil
+}
+
+func (g *GeminiController) HandleListBrowserChats(c fiber.Ctx) error {
+	limit, err := parsePositiveQuery(c.Query("limit"), 13, 100)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(common.ErrorToResponse(err, "invalid_request_error"))
+	}
+	page, err := g.service.ListBrowserChats(c.Context(), limit, c.Query("cursor"))
+	if err != nil {
+		return c.Status(fiber.StatusBadGateway).JSON(common.ErrorToResponse(err, "gemini_web_error"))
+	}
+	return c.JSON(page)
+}
+
+func (g *GeminiController) HandleReadBrowserChat(c fiber.Ctx) error {
+	limit, err := parsePositiveQuery(c.Query("limit"), 10, 100)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(common.ErrorToResponse(err, "invalid_request_error"))
+	}
+	page, err := g.service.ReadBrowserChat(c.Context(), c.Params("chatID"), limit, c.Query("cursor"))
+	if err != nil {
+		return c.Status(fiber.StatusBadGateway).JSON(common.ErrorToResponse(err, "gemini_web_error"))
+	}
+	return c.JSON(page)
+}
+
+func (g *GeminiController) HandleContinueBrowserChat(c fiber.Ctx) error {
+	var req dto.BrowserChatMessageRequest
+	if err := c.Bind().Body(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(common.ErrorToResponse(err, "invalid_request_error"))
+	}
+	if req.Prompt == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(common.ErrorToResponse(fmt.Errorf("prompt is required"), "invalid_request_error"))
+	}
+	response, err := g.service.ContinueBrowserChat(c.Context(), c.Params("chatID"), req)
+	if err != nil {
+		return c.Status(fiber.StatusBadGateway).JSON(common.ErrorToResponse(err, "gemini_web_error"))
+	}
+	return c.JSON(response)
 }
 
 func (h *GeminiController) backgroundResearch(id string, req dto.DeepResearchRequest) {

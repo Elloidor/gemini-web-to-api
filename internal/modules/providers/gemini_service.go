@@ -43,12 +43,18 @@ type Client struct {
 	healthy      bool
 	log          *zap.Logger
 
-	autoRefresh      bool
-	refreshInterval  time.Duration
-	stopRefresh      chan struct{}
-	maxRetries       int
-	cachedModels     []ModelInfo
-	defaultTemporary bool
+	autoRefresh         bool
+	refreshInterval     time.Duration
+	stopRefresh         chan struct{}
+	maxRetries          int
+	cachedModels        []ModelInfo
+	defaultTemporary    bool
+	cookieSyncFile      string
+	cookieSyncMTime     time.Time
+	cookieSyncSeenMTime time.Time
+	cookieSyncPending   bool
+	sessionRefreshMu    sync.Mutex
+	chatLocks           sync.Map
 }
 
 type CookieStore struct {
@@ -99,10 +105,99 @@ func NewClient(cfg *configs.Config, log *zap.Logger) *Client {
 		maxRetries:       cfg.Gemini.MaxRetries,
 		log:              log,
 		defaultTemporary: cfg.Gemini.Temporary,
+		cookieSyncFile:   cfg.Gemini.CookieSyncFile,
 	}
 }
 
+func (c *Client) syncCookiesFromFile() (bool, error) {
+	if strings.TrimSpace(c.cookieSyncFile) == "" {
+		return false, nil
+	}
+	info, err := os.Stat(c.cookieSyncFile)
+	if err != nil {
+		return false, err
+	}
+	c.mu.RLock()
+	unchanged := !c.cookieSyncSeenMTime.IsZero() && !info.ModTime().After(c.cookieSyncSeenMTime)
+	pending := c.cookieSyncPending
+	c.mu.RUnlock()
+	if unchanged {
+		return pending, nil
+	}
+	data, err := os.ReadFile(c.cookieSyncFile)
+	if err != nil {
+		return false, err
+	}
+	var values map[string]string
+	if err := json.Unmarshal(data, &values); err != nil {
+		var wrapper struct {
+			Cookies []struct {
+				Name  string `json:"name"`
+				Value string `json:"value"`
+			} `json:"cookies"`
+		}
+		if wrapperErr := json.Unmarshal(data, &wrapper); wrapperErr != nil {
+			return false, fmt.Errorf("decode %s: %w", c.cookieSyncFile, err)
+		}
+		values = make(map[string]string, len(wrapper.Cookies))
+		for _, cookie := range wrapper.Cookies {
+			values[cookie.Name] = cookie.Value
+		}
+	}
+	psid := cleanCookie(values["__Secure-1PSID"])
+	psidts := cleanCookie(values["__Secure-1PSIDTS"])
+	if psid == "" || psidts == "" {
+		return false, fmt.Errorf("%s lacks required Gemini cookies", c.cookieSyncFile)
+	}
+
+	c.cookies.mu.Lock()
+	changed := c.cookies.Secure1PSID != psid || c.cookies.Secure1PSIDTS != psidts
+	c.cookies.Secure1PSID = psid
+	c.cookies.Secure1PSIDTS = psidts
+	c.cookies.UpdatedAt = info.ModTime()
+	c.cookies.mu.Unlock()
+	c.mu.Lock()
+	c.cookieSyncSeenMTime = info.ModTime()
+	c.cookieSyncPending = pending || changed
+	needsRefresh := c.cookieSyncPending
+	c.mu.Unlock()
+	if changed {
+		c.httpClient.SetCommonCookies(c.cookies.ToHTTPCookies()...)
+		c.log.Info("Synced Gemini cookies from browser file")
+	}
+	return needsRefresh, nil
+}
+
+func (c *Client) markCookieSyncApplied() {
+	c.mu.Lock()
+	c.cookieSyncMTime = c.cookieSyncSeenMTime
+	c.cookieSyncPending = false
+	c.mu.Unlock()
+}
+
+func (c *Client) ensureCurrentBrowserSession() error {
+	c.sessionRefreshMu.Lock()
+	defer c.sessionRefreshMu.Unlock()
+
+	needsRefresh, err := c.syncCookiesFromFile()
+	if err != nil {
+		return err
+	}
+	if !needsRefresh {
+		return nil
+	}
+	if err := c.refreshSessionTokenUnlocked(); err != nil {
+		return err
+	}
+	c.markCookieSyncApplied()
+	return nil
+}
+
 func (c *Client) Init(ctx context.Context) error {
+	if _, err := c.syncCookiesFromFile(); err != nil {
+		return fmt.Errorf("sync browser cookies: %w", err)
+	}
+
 	// Clean cookies
 	c.cookies.Secure1PSID = cleanCookie(c.cookies.Secure1PSID)
 	configPSIDTS := cleanCookie(c.cookies.Secure1PSIDTS) // Save original config value
@@ -152,6 +247,7 @@ func (c *Client) Init(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	c.markCookieSyncApplied()
 
 	// Save the valid cookies to cache immediately after successful init
 	_ = c.SaveCachedCookies()
@@ -167,6 +263,16 @@ func (c *Client) Init(ctx context.Context) error {
 }
 
 func (c *Client) refreshSessionToken() error {
+	c.sessionRefreshMu.Lock()
+	defer c.sessionRefreshMu.Unlock()
+	if err := c.refreshSessionTokenUnlocked(); err != nil {
+		return err
+	}
+	c.markCookieSyncApplied()
+	return nil
+}
+
+func (c *Client) refreshSessionTokenUnlocked() error {
 	// 1. Initial hit to google.com to get extra cookies (NID, etc)
 	tmpClient := req.NewClient().
 		SetTimeout(30 * time.Second).
@@ -186,9 +292,13 @@ func (c *Client) refreshSessionToken() error {
 		}
 	}
 
-	// 2. Prepare full cookie string
+	// 2. Prepare full cookie string from one consistent snapshot.
+	c.cookies.mu.RLock()
+	psid := c.cookies.Secure1PSID
+	psidts := c.cookies.Secure1PSIDTS
+	c.cookies.mu.RUnlock()
 	cookieStr := fmt.Sprintf("%s__Secure-1PSID=%s; __Secure-1PSIDTS=%s",
-		extraCookies, c.cookies.Secure1PSID, c.cookies.Secure1PSIDTS)
+		extraCookies, psid, psidts)
 
 	commonHeaders := map[string]string{
 		"Accept":                    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
@@ -500,6 +610,13 @@ func (c *Client) GetCookies() *CookieStore {
 }
 
 func (c *Client) GenerateContent(ctx context.Context, prompt string, options ...GenerateOption) (*Response, error) {
+	return c.generateContent(ctx, prompt, nil, options...)
+}
+
+func (c *Client) generateContent(ctx context.Context, prompt string, metadata *SessionMetadata, options ...GenerateOption) (*Response, error) {
+	if err := c.ensureCurrentBrowserSession(); err != nil {
+		return nil, fmt.Errorf("refresh browser session: %w", err)
+	}
 	config := &GenerateConfig{}
 	for _, opt := range options {
 		opt(config)
@@ -540,7 +657,7 @@ func (c *Client) GenerateContent(ctx context.Context, prompt string, options ...
 	}
 
 	requestID := strings.ToUpper(uuid.NewString())
-	inner := buildGenerateInner(prompt, uploadedFiles, config.Model, language, requestID, c.defaultTemporary)
+	inner := buildGenerateInner(prompt, uploadedFiles, config.Model, language, requestID, c.defaultTemporary, metadata)
 
 	innerJSON, _ := json.Marshal(inner)
 	outer := []interface{}{nil, string(innerJSON)}
@@ -783,7 +900,7 @@ func resolveAvailableModel(requested string, models []ModelInfo) (string, bool) 
 	return requested, false
 }
 
-func buildGenerateInner(prompt string, files []uploadedFile, model, language, requestID string, isTemporary bool) []interface{} {
+func buildGenerateInner(prompt string, files []uploadedFile, model, language, requestID string, isTemporary bool, metadata *SessionMetadata) []interface{} {
 	var messageContent []interface{}
 	if len(files) == 0 {
 		messageContent = []interface{}{prompt}
@@ -796,6 +913,16 @@ func buildGenerateInner(prompt string, files []uploadedFile, model, language, re
 	}
 
 	defaultMetadata := []interface{}{"", "", "", nil, nil, nil, nil, nil, nil, ""}
+	if metadata != nil {
+		defaultMetadata[0] = metadata.ConversationID
+		defaultMetadata[1] = metadata.ResponseID
+		defaultMetadata[2] = metadata.ChoiceID
+		if metadata.Extra != nil {
+			if contextToken, ok := metadata.Extra["context"].(string); ok {
+				defaultMetadata[9] = contextToken
+			}
+		}
+	}
 	inner := make([]interface{}, 69)
 	inner[0] = messageContent
 	inner[1] = []interface{}{language}
@@ -806,6 +933,9 @@ func buildGenerateInner(prompt string, files []uploadedFile, model, language, re
 	inner[10] = 1
 	inner[11] = 0
 	inner[17] = []interface{}{[]interface{}{0}}
+	if metadata != nil && metadata.ResponseID != "" {
+		inner[17] = []interface{}{[]interface{}{1}}
+	}
 	inner[18] = 0
 	inner[27] = 1
 	inner[30] = []interface{}{4}
@@ -813,6 +943,9 @@ func buildGenerateInner(prompt string, files []uploadedFile, model, language, re
 	inner[53] = 0
 	inner[59] = requestID
 	inner[61] = []interface{}{}
+	if metadata != nil && metadata.ConversationID != "" {
+		inner[67] = 0
+	}
 	inner[68] = 2
 
 	if isTemporary {
@@ -945,24 +1078,38 @@ func (c *Client) parseResponse(text string) (*Response, error) {
 							if ok && len(contentParts) > 0 {
 								resText, ok := contentParts[0].(string)
 								if ok {
-									// Extract conversation metadata if available
-									var cid, rid, rcid string
+									// Extract conversation metadata if available.
+									var cid, rid, rcid, contextToken string
 									if len(firstCandidate) > 0 {
 										if id, ok := firstCandidate[0].(string); ok {
 											rcid = id
 										}
 									}
 									if len(payload) > 1 {
-										if id, ok := payload[1].(string); ok {
-											cid = id
+										if metadataArray, ok := payload[1].([]interface{}); ok {
+											if len(metadataArray) > 0 {
+												cid, _ = metadataArray[0].(string)
+											}
+											if len(metadataArray) > 1 {
+												rid, _ = metadataArray[1].(string)
+											}
+											if len(metadataArray) > 2 && rcid == "" {
+												rcid, _ = metadataArray[2].(string)
+											}
+											if len(metadataArray) > 9 {
+												contextToken, _ = metadataArray[9].(string)
+											}
+										} else {
+											cid, _ = payload[1].(string)
 										}
 									}
 
 									finalResText = resText
 									finalMetadata = map[string]any{
-										"cid":  cid,
-										"rid":  rid,
-										"rcid": rcid,
+										"cid":     cid,
+										"rid":     rid,
+										"rcid":    rcid,
+										"context": contextToken,
 									}
 									found = true
 								}

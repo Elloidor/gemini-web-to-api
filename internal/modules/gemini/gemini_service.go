@@ -30,6 +30,38 @@ func (s *GeminiService) ListModels() []providers.ModelInfo {
 	return s.client.ListModels()
 }
 
+func (s *GeminiService) ListBrowserChats(ctx context.Context, pageSize int, cursor string) (*providers.ChatPage, error) {
+	return s.client.ListChats(ctx, pageSize, cursor)
+}
+
+func (s *GeminiService) ReadBrowserChat(ctx context.Context, chatID string, maxTurns int, cursor string) (*providers.ChatHistoryPage, error) {
+	return s.client.ReadChat(ctx, chatID, maxTurns, cursor)
+}
+
+func (s *GeminiService) ContinueBrowserChat(ctx context.Context, chatID string, req dto.BrowserChatMessageRequest) (*dto.BrowserChatMessageResponse, error) {
+	model := strings.TrimSpace(req.Model)
+	if model == "" {
+		model = "gemini-auto"
+	}
+	response, err := s.client.ContinueChat(ctx, chatID, req.Prompt, providers.WithModel(model))
+	if err != nil {
+		return nil, err
+	}
+	result := &dto.BrowserChatMessageResponse{
+		ChatID:        chatID,
+		Text:          response.Text,
+		ReasoningText: response.ReasoningText,
+	}
+	if response.Metadata != nil {
+		if value, ok := response.Metadata["cid"].(string); ok && value != "" {
+			result.ChatID = value
+		}
+		result.RequestID, _ = response.Metadata["rid"].(string)
+		result.CandidateID, _ = response.Metadata["rcid"].(string)
+	}
+	return result, nil
+}
+
 func (s *GeminiService) GenerateContent(ctx context.Context, modelID string, req dto.GeminiGenerateRequest) (*dto.GeminiGenerateResponse, error) {
 	// Logic: Extract prompt
 	var promptBuilder strings.Builder
