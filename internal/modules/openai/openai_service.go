@@ -187,6 +187,14 @@ func (s *OpenAIService) CreateImageGeneration(ctx context.Context, req dto.Image
 		opts = append(opts, providers.WithModel(req.Model))
 	}
 
+	inputFiles, err := inputFilesFromImageGenerationRequest(req.Image)
+	if err != nil {
+		return nil, err
+	}
+	if len(inputFiles) > 0 {
+		opts = append(opts, providers.WithInputFiles(inputFiles))
+	}
+
 	data := make([]dto.ImageGenerationData, 0, n)
 	for len(data) < n {
 		response, err := s.client.GenerateContent(ctx, imagePrompt, opts...)
@@ -217,6 +225,44 @@ func (s *OpenAIService) CreateImageGeneration(ctx context.Context, req dto.Image
 	return &dto.ImageGenerationResponse{
 		Created: time.Now().Unix(),
 		Data:    data,
+	}, nil
+}
+
+func inputFilesFromImageGenerationRequest(imageURL string) ([]providers.InputFile, error) {
+	imageURL = strings.TrimSpace(imageURL)
+	if imageURL == "" {
+		return nil, nil
+	}
+	if !strings.HasPrefix(imageURL, "data:") {
+		return nil, fmt.Errorf("image must be a base64 data URL")
+	}
+
+	metaAndData := strings.SplitN(strings.TrimPrefix(imageURL, "data:"), ",", 2)
+	if len(metaAndData) != 2 {
+		return nil, fmt.Errorf("invalid image data URL")
+	}
+
+	meta := metaAndData[0]
+	if !strings.Contains(strings.ToLower(meta), ";base64") {
+		return nil, fmt.Errorf("invalid image data URL")
+	}
+
+	mimeType := strings.TrimSuffix(meta, ";base64")
+	if strings.HasSuffix(strings.ToLower(mimeType), ";base64") {
+		mimeType = mimeType[:len(mimeType)-7]
+	}
+
+	data, err := providers.DecodeBase64Data(metaAndData[1])
+	if err != nil {
+		return nil, fmt.Errorf("decode input image: %w", err)
+	}
+
+	return []providers.InputFile{
+		{
+			Name:     "reference.png",
+			MimeType: mimeType,
+			Data:     data,
+		},
 	}, nil
 }
 

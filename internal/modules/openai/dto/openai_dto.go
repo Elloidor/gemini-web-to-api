@@ -304,6 +304,7 @@ type ChunkChoice struct {
 type ImageGenerationRequest struct {
 	Model          string `json:"model,omitempty"`
 	Prompt         string `json:"prompt"`
+	Image          string `json:"image,omitempty"`
 	N              int    `json:"n,omitempty"`
 	Size           string `json:"size,omitempty"`
 	ResponseFormat string `json:"response_format,omitempty"`
