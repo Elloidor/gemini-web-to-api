@@ -636,6 +636,8 @@ func (c *Client) generateContent(ctx context.Context, prompt string, metadata *S
 	if _, ok := webModelIDs[requestedModel]; ok {
 		// Web-catalog model with a known internal hash: bypass the account catalog.
 		found = true
+	} else if strings.HasPrefix(requestedModel, "gemini-selector-") {
+		found = true
 	} else {
 		resolvedModel, found = resolveAvailableModel(requestedModel, c.cachedModels)
 	}
@@ -731,6 +733,7 @@ func (c *Client) generateContent(ctx context.Context, prompt string, metadata *S
 		httpReq.Header.Set("Referer", "https://gemini.google.com/")
 		httpReq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 		httpReq.Header.Set("X-Same-Domain", "1")
+		httpReq.Header.Set("X-Goog-AuthUser", AuthUser)
 		if len(uploadedFiles) > 0 {
 			httpReq.Header.Set("x-goog-ext-525005358-jspb", fmt.Sprintf(`["%s",1]`, requestID))
 		}
@@ -740,7 +743,7 @@ func (c *Client) generateContent(ctx context.Context, prompt string, metadata *S
 		}
 		modelID, modelSelector := modelSelectorFor(resolvedModel)
 		extHeader := fmt.Sprintf(
-			`[1,null,null,null,"%s",null,null,%d,[4,5,6,8,4,5,6,8],null,null,2,null,null,%d,%d,"%s"]`,
+			`[1,null,null,null,"%s",null,null,%d,[4,5,6,8,16,19,20,4,5,6,8,16,19,20],null,null,2,null,null,%d,%d,"%s"]`,
 			modelID, modeFlag, modelSelector, modelSurface, strings.ToUpper(uuid.NewString()),
 		)
 		httpReq.Header.Set("x-goog-ext-525001261-jspb", extHeader)
@@ -908,6 +911,9 @@ var webModelIDs = map[string]struct {
 	"gemini-3-flash-advanced":          {id: "56fdd199312815e2", selector: 1},
 	"gemini-advanced":                  {id: "e6fa609c3fa255c0", selector: 3},
 	"gemini-3-flash-preview":           {id: "fbb127bbb056c959", selector: 1},
+	"gemini-4-argon":                   {id: "95a4c0abcba24364", selector: 8},
+	"gemini-argon":                     {id: "95a4c0abcba24364", selector: 8},
+	"gemini-4":                         {id: "95a4c0abcba24364", selector: 8},
 }
 
 // modelSelectorFor resolves the internal model hash and tier selector used in
@@ -916,6 +922,12 @@ var webModelIDs = map[string]struct {
 func modelSelectorFor(model string) (string, int) {
 	if entry, ok := webModelIDs[model]; ok {
 		return entry.id, entry.selector
+	}
+	if strings.HasPrefix(model, "gemini-selector-") {
+		var sel int
+		if _, err := fmt.Sscanf(model, "gemini-selector-%d", &sel); err == nil {
+			return "95a4c0abcba24364", sel
+		}
 	}
 	return strings.ReplaceAll(uuid.NewString(), "-", "")[:16], 1
 }
@@ -1516,19 +1528,27 @@ func (c *Client) ClearCookieCache() error {
 	return nil
 }
 
-const (
+var (
+	AuthUser = func() string {
+		if u := os.Getenv("GEMINI_AUTH_USER"); u != "" {
+			return u
+		}
+		return "1"
+	}()
+
 	EndpointGoogle        = "https://www.google.com"
-	EndpointInit          = "https://gemini.google.com/app"
-	EndpointGenerate      = "https://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate"
+	EndpointInit          = "https://gemini.google.com/u/" + AuthUser + "/app"
+	EndpointGenerate      = "https://gemini.google.com/u/" + AuthUser + "/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate"
 	EndpointRotateCookies = "https://accounts.google.com/RotateCookies"
 	EndpointUpload        = "https://content-push.googleapis.com/upload"
-	EndpointBatchExec     = "https://gemini.google.com/_/BardChatUi/data/batchexecute"
+	EndpointBatchExec     = "https://gemini.google.com/u/" + AuthUser + "/_/BardChatUi/data/batchexecute"
 )
 
 var DefaultHeaders = map[string]string{
-	"Content-Type":  "application/x-www-form-urlencoded;charset=utf-8",
-	"Origin":        "https://gemini.google.com",
-	"Referer":       "https://gemini.google.com/",
-	"User-Agent":    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-	"X-Same-Domain": "1",
+	"Content-Type":    "application/x-www-form-urlencoded;charset=utf-8",
+	"Origin":          "https://gemini.google.com",
+	"Referer":         "https://gemini.google.com/",
+	"User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+	"X-Same-Domain":   "1",
+	"X-Goog-AuthUser": AuthUser,
 }

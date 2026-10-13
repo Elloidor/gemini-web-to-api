@@ -68,8 +68,23 @@ Verified model hashes (boq_assistant-bard-web-server_20260910.05_p2):
 | `gemini-3.5-flash-lite` | `8c46e95b1a07cecc` | 6 |
 | `gemini-3-flash-thinking-plus` | `e051ce1aa80aa576` | 2 |
 | `gemini-3-pro-plus` / `-advanced` | `e6fa609c3fa255c0` | 3 |
+| `gemini-4-argon` / `gemini-argon` | `95a4c0abcba24364` | 8 |
+| `gemini-selector-<N>` | `95a4c0abcba24364` | N (2, 4–7, 8, 9, 12, 14, 20, 40) |
 
 Models with a known hash bypass the account catalog and are accepted even when the (stale) catalog does not list them.
+
+### Verified selectors & behavior
+
+- **Selector 1** (`3.8-flash`, `3-flash`): standard synchronous Flash.
+- **Selector 2** (`gemini-3-flash-thinking`): dynamic adaptive thinking process (~3.7s).
+- **Selector 3** (`gemini-3.1-pro`, `gemini-advanced`): Pro reasoning tier.
+- **Selector 4**: balanced reasoning mode (~4.6s).
+- **Selector 5 & 7**: raw interactive mode without reasoning overhead (~2.5s - 2.9s).
+- **Selector 6** (`gemini-3.5-flash-lite`): lightweight high-speed responses (~2.4s).
+- **Selector 8** (`gemini-4-argon`): flagship Gemini 4 Argon with Paid / Pro tier capabilities (~14s).
+- **Selector 9 - 11**: extended Argon reasoning variants (~5s - 11s).
+- **Selector 12 & 14**: maximum reasoning depth / Deep Think (~17.4s).
+- **Selector 40**: Spark / Task mode protobuf flag.
 
 ### Behavior by tier
 
