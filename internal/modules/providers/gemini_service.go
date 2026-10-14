@@ -1359,23 +1359,55 @@ func (c *Client) IsHealthy() bool {
 	return c.healthy
 }
 
+var curatedModels = []string{
+	"gemini-4-argon",
+	"gemini-3.8-flash",
+	"gemini-3-flash-thinking",
+	"gemini-3-pro",
+	"gemini-3.5-flash",
+	"gemini-3.1-flash-lite",
+	"gemini-advanced",
+	"imagen-3",
+}
+
 func (c *Client) ListModels() []ModelInfo {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if len(c.cachedModels) == 0 {
-		return []ModelInfo{}
+	now := time.Now().Unix()
+	seen := make(map[string]bool)
+	var result []ModelInfo
+
+	for _, id := range curatedModels {
+		if !seen[id] {
+			seen[id] = true
+			result = append(result, ModelInfo{
+				ID:       id,
+				Created:  now,
+				OwnedBy:  "google",
+				Provider: "gemini",
+			})
+		}
 	}
 
-	return c.cachedModels
+	for _, m := range c.cachedModels {
+		// filter out deprecated/preview noise
+		if strings.Contains(m.ID, "-preview-0") || strings.Contains(m.ID, "2.0") || strings.Contains(m.ID, "-tts") {
+			continue
+		}
+		if !seen[m.ID] {
+			seen[m.ID] = true
+			result = append(result, m)
+		}
+	}
+
+	return result
 }
 
 func (c *Client) ListModelsIDs() []string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	ids := make([]string, 0, len(c.cachedModels))
-	for _, m := range c.cachedModels {
+	models := c.ListModels()
+	ids := make([]string, 0, len(models))
+	for _, m := range models {
 		ids = append(ids, m.ID)
 	}
 	return ids
