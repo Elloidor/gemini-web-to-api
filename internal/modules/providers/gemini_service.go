@@ -1191,6 +1191,9 @@ var webModelIDs = map[string]struct {
 	"gemini-4-argon":                   {id: "95a4c0abcba24364", selector: 8},
 	"gemini-argon":                     {id: "95a4c0abcba24364", selector: 8},
 	"gemini-4":                         {id: "95a4c0abcba24364", selector: 8},
+	"gemini-argon-deep-think":          {id: "95a4c0abcba24364", selector: 12},
+	"gemini-4-argon-deep-think":        {id: "95a4c0abcba24364", selector: 12},
+	"gemini-argon-balanced":            {id: "95a4c0abcba24364", selector: 4},
 	"gemini-3-pro-image-preview-11-2025": {id: "95a4c0abcba24364", selector: 8},
 	"gemini-3-pro-image":               {id: "95a4c0abcba24364", selector: 8},
 	"gemini-2.5-flash-image-preview":   {id: "95a4c0abcba24364", selector: 8},
@@ -1361,13 +1364,11 @@ func (c *Client) IsHealthy() bool {
 
 var curatedModels = []string{
 	"gemini-4-argon",
-	"gemini-3.8-flash",
+	"gemini-argon-deep-think",
+	"gemini-argon-balanced",
 	"gemini-3-flash-thinking",
 	"gemini-3-pro",
-	"gemini-3.5-flash",
-	"gemini-3.1-flash-lite",
 	"gemini-advanced",
-	"imagen-3",
 }
 
 func (c *Client) ListModels() []ModelInfo {
