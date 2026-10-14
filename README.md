@@ -163,6 +163,8 @@ Your Gemini Web To API is running at `http://localhost:4981` 🎉
 - 🔌 **Drop-in Replacement**: Works with existing OpenAI / Claude / Gemini SDKs
 - 🔄 **Smart Session Management**: Auto-rotates cookies to keep sessions alive
 - ⚡ **High Performance**: Built with Go and Fiber for speed
+- 🔮 **Gemini 4 Argon & Thinking Tiers**: Native support for frontier `gemini-4-argon` and dynamic reasoning selectors (2, 4–7, 8, 9, 12, 14, 40)
+- 🌐 **Live Web Grounding**: Real-time Google Search grounding enabled by default
 - 🐳 **Production Ready**: Docker Compose support, Scalar UI, health checks
 - 📝 **Well Documented**: Interactive API docs at `/docs`
 - 🖼️ **Image Generation**: OpenAI-compatible text-to-image with authenticated `b64_json` output
@@ -184,6 +186,7 @@ See [Browser chats & real model selection](docs/browser-chats.md) for continuing
 | `GEMINI_1PSID`            | ✅ Yes   | —       | Main session cookie from Gemini                    |
 | `GEMINI_1PSIDTS`          | Conditional | —       | Timestamp cookie; omit when `GEMINI_COOKIE_SYNC_FILE` is used |
 | `GEMINI_COOKIE_SYNC_FILE` | ❌ No    | —       | JSON file with live browser cookies, re-read before each RPC |
+| `GEMINI_AUTH_USER`        | ❌ No    | `1`     | Google account index (`/u/N/`) for multi-login browser profiles |
 | `GEMINI_BROWSER_CHATS_ENABLED` | ❌ No | `false` | Expose `/gemini/web/*` browser chat continuation API |
 | `GEMINI_BROWSER_CHATS_API_KEY` | Conditional | — | API key (min 32 chars) required when browser chats are enabled |
 | `GEMINI_REFRESH_INTERVAL` | ❌ No    | `30`    | Cookie rotation interval (minutes)                 |
