@@ -13,10 +13,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o main ./cmd/server/main.go
 
 # Stage 2: Final Image
-FROM alpine:3.22.2
-
-# Install required packages
-RUN apk add --no-cache ca-certificates tzdata
+FROM golang:1.25-alpine
 
 # Create a non-root user and group
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup

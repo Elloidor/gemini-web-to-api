@@ -13,6 +13,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+	"encoding/json"
 
 	"gemini-web-to-api/internal/commons/models"
 )
@@ -117,6 +119,14 @@ func (c *Client) uploadRequestFiles(ctx context.Context, cfg *GenerateConfig, co
 }
 
 func (c *Client) uploadFile(ctx context.Context, filename, mimeType string, data []byte, cookieHdr string) (uploadedFile, error) {
+	// First check if CDP is available to upload directly from browser context (avoids TLS handshake timeouts on VPS egress)
+	cdpURL := os.Getenv("GEMINI_CDP_URL")
+	if cdpURL != "" {
+		if id, err := uploadFileViaCDP(ctx, cdpURL, filename, mimeType, data, c.pushIDOrDefault()); err == nil && id != "" {
+			return uploadedFile{ID: id, Name: filename}, nil
+		}
+	}
+
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 
@@ -148,7 +158,8 @@ func (c *Client) uploadFile(ctx context.Context, filename, mimeType string, data
 		req.Header.Set("Cookie", cookieHdr)
 	}
 
-	resp, err := c.httpClient.GetClient().Do(req)
+	uploader := &http.Client{Timeout: 60 * time.Second}
+	resp, err := uploader.Do(req)
 	if err != nil {
 		return uploadedFile{}, fmt.Errorf("upload %q failed: %w", filename, err)
 	}
@@ -192,4 +203,100 @@ func extensionForMimeType(mimeType string) string {
 	default:
 		return ".bin"
 	}
+}
+
+func uploadFileViaCDP(ctx context.Context, cdpBaseURL, filename, mimeType string, data []byte, pushID string) (string, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", strings.TrimSuffix(cdpBaseURL, "/")+"/json/list", nil)
+	if err != nil {
+		return "", err
+	}
+	httpResp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return "", err
+	}
+	defer httpResp.Body.Close()
+
+	var targets []map[string]interface{}
+	if err := json.NewDecoder(httpResp.Body).Decode(&targets); err != nil {
+		return "", err
+	}
+
+	var target map[string]interface{}
+	for _, t := range targets {
+		if u, ok := t["url"].(string); ok && strings.Contains(u, "gemini.google.com") {
+			target = t
+			break
+		}
+	}
+	if target == nil {
+		return "", fmt.Errorf("no gemini page found in cdp")
+	}
+
+	wsURL, ok := target["webSocketDebuggerUrl"].(string)
+	if !ok || wsURL == "" {
+		return "", fmt.Errorf("no websocket debugger url in cdp target")
+	}
+
+	client, err := newCDPConn(wsURL)
+	if err != nil {
+		return "", err
+	}
+	defer client.conn.Close()
+
+	b64Data := base64.StdEncoding.EncodeToString(data)
+	if mimeType == "" {
+		mimeType = "image/jpeg"
+	}
+
+	script := fmt.Sprintf(`(async () => {
+		const b64 = %q;
+		const byteCharacters = atob(b64);
+		const byteNumbers = new Array(byteCharacters.length);
+		for (let i = 0; i < byteCharacters.length; i++) {
+			byteNumbers[i] = byteCharacters.charCodeAt(i);
+		}
+		const byteArray = new Uint8Array(byteNumbers);
+		const blob = new Blob([byteArray], {type: %q});
+
+		const formData = new FormData();
+		formData.append('file', blob, %q);
+
+		const resp = await fetch('https://content-push.googleapis.com/upload', {
+			method: 'POST',
+			headers: {
+				'X-Tenant-Id': 'bard-storage',
+				'Push-ID': %q
+			},
+			body: formData
+		});
+
+		const text = await resp.text();
+		return {status: resp.status, body: text.trim()};
+	})()`, b64Data, mimeType, filename, pushID)
+
+	evalRes, err := client.call(1, "Runtime.evaluate", map[string]interface{}{
+		"expression":    script,
+		"awaitPromise":  true,
+		"returnByValue": true,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	resultObj, ok := evalRes["result"].(map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("invalid cdp evaluate result")
+	}
+	valObj, ok := resultObj["value"].(map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("invalid cdp evaluate value")
+	}
+
+	status, _ := valObj["status"].(float64)
+	bodyStr, _ := valObj["body"].(string)
+	if int(status) != 200 || bodyStr == "" {
+		return "", fmt.Errorf("upload via cdp failed with status %v: %s", status, bodyStr)
+	}
+
+	return bodyStr, nil
 }

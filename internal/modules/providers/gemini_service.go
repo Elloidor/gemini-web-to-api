@@ -741,19 +741,27 @@ func (c *Client) generateContent(ctx context.Context, prompt string, metadata *S
 		httpReq.Header.Set("X-Goog-AuthUser", AuthUser)
 		if len(uploadedFiles) > 0 {
 			httpReq.Header.Set("x-goog-ext-525005358-jspb", fmt.Sprintf(`["%s",1]`, requestID))
+			modelSurface = 1
 		}
 		modeFlag := 0
 		if c.defaultTemporary {
 			modeFlag = 1
 		}
 		modelID, modelSelector := modelSelectorFor(resolvedModel)
+		traceID := strings.ToUpper(uuid.NewString())
+		clientVersion := "boq_gemini-web-uiserver_20261012.19_p1"
 		extHeader := fmt.Sprintf(
-			`[1,null,null,null,"%s",null,null,%d,[4,5,6,8,16,19,20,4,5,6,8,16,19,20],null,null,2,null,null,%d,%d,"%s"]`,
-			modelID, modeFlag, modelSelector, modelSurface, strings.ToUpper(uuid.NewString()),
+			`[1,null,null,null,"%s",null,null,%d,[4,5,6,8,16,19,20,4,5,6,8,16,19,20],null,null,2,null,null,%d,%d,"%s",["%s"],null,[[41,598400000],[%d,12000000]]]`,
+			modelID, modeFlag, modelSelector, modelSurface, traceID, clientVersion, time.Now().Unix(),
 		)
 		httpReq.Header.Set("x-goog-ext-525001261-jspb", extHeader)
 		httpReq.Header.Set("x-goog-ext-73010989-jspb", "[0]")
 		httpReq.Header.Set("x-goog-ext-73010990-jspb", "[0,0,0]")
+		httpReq.Header.Set("sec-ch-ua", `"Not;A=Brand";v="8", "Chromium";v="150"`)
+		httpReq.Header.Set("sec-ch-ua-mobile", "?0")
+		httpReq.Header.Set("sec-ch-ua-platform", `"Linux"`)
+		httpReq.Header.Set("sec-ch-ua-bitness", `"64"`)
+		httpReq.Header.Set("sec-ch-ua-arch", `"x86"`)
 		if cookieHdr != "" {
 			httpReq.Header.Set("Cookie", cookieHdr)
 		}
@@ -1223,7 +1231,10 @@ func buildGenerateInner(prompt string, files []uploadedFile, model, language, re
 	} else {
 		fileData := make([]interface{}, 0, len(files))
 		for _, file := range files {
-			fileData = append(fileData, []interface{}{[]interface{}{file.ID}, file.Name})
+			fileData = append(fileData, []interface{}{
+				[]interface{}{file.ID, 1, nil, "image/jpeg", uuid.NewString()},
+				file.Name,
+			})
 		}
 		messageContent = []interface{}{prompt, 0, nil, fileData, nil, nil, 0}
 	}
@@ -1239,7 +1250,7 @@ func buildGenerateInner(prompt string, files []uploadedFile, model, language, re
 			}
 		}
 	}
-	inner := make([]interface{}, 69)
+	inner := make([]interface{}, 99)
 	inner[0] = messageContent
 	inner[1] = []interface{}{language}
 	inner[2] = defaultMetadata
@@ -1256,6 +1267,7 @@ func buildGenerateInner(prompt string, files []uploadedFile, model, language, re
 	inner[27] = 1
 	inner[30] = []interface{}{4}
 	inner[41] = []interface{}{1}
+	inner[49] = 0
 	inner[53] = 0
 	inner[59] = requestID
 	inner[61] = []interface{}{}
@@ -1263,6 +1275,16 @@ func buildGenerateInner(prompt string, files []uploadedFile, model, language, re
 		inner[67] = 0
 	}
 	inner[68] = 2
+
+	if len(files) > 0 {
+		inner[17] = []interface{}{[]interface{}{2}}
+		inner[30] = []interface{}{4, 16, 19}
+		inner[79] = 8
+		inner[80] = 1
+		inner[91] = 1
+		inner[96] = 0
+		inner[98] = 1
+	}
 
 	if isTemporary {
 		inner[45] = 1
