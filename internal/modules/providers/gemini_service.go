@@ -1180,6 +1180,16 @@ var webModelIDs = map[string]struct {
 	"gemini-4-argon":                   {id: "95a4c0abcba24364", selector: 8},
 	"gemini-argon":                     {id: "95a4c0abcba24364", selector: 8},
 	"gemini-4":                         {id: "95a4c0abcba24364", selector: 8},
+	"gemini-3-pro-image-preview-11-2025": {id: "95a4c0abcba24364", selector: 8},
+	"gemini-3-pro-image":               {id: "95a4c0abcba24364", selector: 8},
+	"gemini-2.5-flash-image-preview":   {id: "95a4c0abcba24364", selector: 8},
+	"gemini-2.5-flash-image":           {id: "95a4c0abcba24364", selector: 8},
+	"gemini-3.1-flash-image":           {id: "95a4c0abcba24364", selector: 8},
+	"gemini-3.1-flash-image-preview":   {id: "95a4c0abcba24364", selector: 8},
+	"imagen-3.0-generate-002":          {id: "95a4c0abcba24364", selector: 8},
+	"imagen-3":                         {id: "95a4c0abcba24364", selector: 8},
+	"imagen-3.0":                       {id: "95a4c0abcba24364", selector: 8},
+	"imagen":                           {id: "95a4c0abcba24364", selector: 8},
 }
 
 // modelSelectorFor resolves the internal model hash and tier selector used in
@@ -1188,6 +1198,10 @@ var webModelIDs = map[string]struct {
 func modelSelectorFor(model string) (string, int) {
 	if entry, ok := webModelIDs[model]; ok {
 		return entry.id, entry.selector
+	}
+	lower := strings.ToLower(model)
+	if strings.Contains(lower, "image") || strings.Contains(lower, "imagen") {
+		return "95a4c0abcba24364", 8
 	}
 	if strings.HasPrefix(model, "gemini-selector-") {
 		var sel int
@@ -1543,9 +1557,18 @@ func collectImages(value any, out map[string]Image) {
 			if _, exists := out[imageURL]; exists {
 				continue
 			}
+			mime := mimeTypeFromImageURL(imageURL)
+			isGen := false
+			if strings.Contains(imageURL, "/gg-dl/") || strings.Contains(imageURL, "googleusercontent.com") {
+				isGen = true
+				if mime == "" {
+					mime = "image/jpeg"
+				}
+			}
 			out[imageURL] = Image{
-				URL:      imageURL,
-				MimeType: mimeTypeFromImageURL(imageURL),
+				URL:       imageURL,
+				MimeType:  mime,
+				Generated: isGen,
 			}
 		}
 	}

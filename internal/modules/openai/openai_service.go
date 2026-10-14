@@ -199,11 +199,19 @@ func (s *OpenAIService) CreateImageGeneration(ctx context.Context, req dto.Image
 
 	data := make([]dto.ImageGenerationData, 0, n)
 	for len(data) < n {
-		response, err := s.client.GenerateContent(ctx, imagePrompt, opts...)
+		var response *providers.Response
+		var err error
+		for attempt := 0; attempt < 3; attempt++ {
+			response, err = s.client.GenerateContent(ctx, imagePrompt, opts...)
+			if err == nil && len(response.Images) > 0 {
+				break
+			}
+			time.Sleep(time.Duration(attempt+1) * time.Second)
+		}
 		if err != nil {
 			return nil, err
 		}
-		if len(response.Images) == 0 {
+		if response == nil || len(response.Images) == 0 {
 			return nil, fmt.Errorf("provider returned no generated images")
 		}
 

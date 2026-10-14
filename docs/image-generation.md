@@ -150,6 +150,35 @@ Gemini Web does not place every generated image in ordinary response text. Gener
 
 The authenticated download is deliberately performed inside the provider. Sending a raw Google-hosted URL to an unauthenticated client commonly results in HTTP `403`.
 
+## Image-to-image (Reference Image Workflow)
+
+You can pass a reference image either to `POST /openai/v1/images/generations` using the `image` field (base64 data URL), or to `POST /openai/v1/chat/completions` using standard OpenAI multimodal messages.
+
+### Endpoint: `POST /openai/v1/images/generations`
+
+```bash
+curl http://localhost:4981/openai/v1/images/generations \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "gemini-4-argon",
+    "prompt": "Draw this person with a warm cup of coffee at sunrise",
+    "image": "data:image/jpeg;base64,...",
+    "size": "1024x1024",
+    "n": 1,
+    "response_format": "b64_json"
+  }'
+```
+
+Supported image models:
+- `gemini-4-argon` (default recommended, maps to selector 8 with Imagen 3 pipeline)
+- `gemini-3-pro-image-preview-11-2025` (legacy alias, automatically routed to selector 8)
+- Any model identifier matching `*image*` or `*imagen*` (automatically routed to selector 8)
+
+### Key Architectural Fixes
+- **CDP-backed file upload fallback:** Circumvents TLS handshake/firewall blocks on `content-push.googleapis.com` from cloud VPS hosts by using the live browser session via Chrome DevTools Protocol (`uploadFileViaCDP`).
+- **Markdown image extraction & Google Fife 403 bypass:** Automatically detects generated image URLs in response markdown (`googleusercontent.com/gg-dl/...`), downloads them using browser credentials via CDP `Network.loadNetworkResource`, and encodes them to `b64_json`.
+- **Automatic retry on disclaimer responses:** When Gemini temporarily returns conversational disclaimers instead of rendering media, the endpoint retries generation up to 3 times before returning.
+
 ## Tested behavior
 
 The implementation has been verified with:
