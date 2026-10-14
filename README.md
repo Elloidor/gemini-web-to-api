@@ -305,6 +305,53 @@ More examples are available in the [`examples/`](examples/) directory.
 
 ---
 
+## 🎨 Image Generation (Text-to-Image & Image-to-Image)
+
+Gemini Web To API supports state-of-the-art **Text-to-Image** and **Image-to-Image** generation powered by Google Imagen 3 (`gemini-4-argon` / selector `8`):
+
+### 1. Text-to-Image
+
+```bash
+curl -X POST 'http://localhost:4981/openai/v1/images/generations' \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $KEY" \
+  -d '{
+    "model": "gemini-4-argon",
+    "prompt": "Cinematic portrait of a young woman after summer rain, sunlight breaking through clouds",
+    "size": "1024x1024",
+    "n": 1,
+    "response_format": "b64_json"
+  }'
+```
+
+### 2. Image-to-Image (Reference Image Transformation)
+
+Pass a base64-encoded reference in the `image` field:
+
+```bash
+curl -X POST 'http://localhost:4981/openai/v1/images/generations' \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $KEY" \
+  -d '{
+    "model": "gemini-4-argon",
+    "prompt": "Recolor the hair to platinum blonde while keeping the exact face, pose, and background",
+    "image": "data:image/jpeg;base64,...",
+    "size": "1024x1024",
+    "n": 1,
+    "response_format": "b64_json"
+  }'
+```
+
+### Key Technical Pillars:
+- **Intelligent Model Routing:** All model identifiers containing `image`, `imagen`, or `argon` automatically map to selector `8` (`95a4c0abcba24364`).
+- **CDP-Assisted Upload Fallback:** Uploads reference images inside the browser context via Chrome DevTools Protocol, bypassing VPS TLS handshake filtering on `content-push.googleapis.com`.
+- **Full Stream Reassembly:** Loops `IO.read` until EOF, ensuring complete, byte-for-byte image downloads without truncated headers.
+- **Google Fife 403 Bypass:** Seamlessly resolves `/gg-dl/` markdown image URLs using authenticated browser CDP network calls.
+- **Automatic Retry:** Handles conversational text fallbacks/disclaimers with bounded retries to guarantee image generation.
+
+
+---
+
 ## 📘 API Documentation
 
 Once running, visit **`http://localhost:4981/docs`** for interactive API documentation powered by [Scalar](https://scalar.com).
