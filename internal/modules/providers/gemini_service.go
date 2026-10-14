@@ -1,10 +1,14 @@
 package providers
 
 import (
+	"bufio"
+	"bytes"
 	"compress/gzip"
 	"context"
+	crand "crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -12,6 +16,7 @@ import (
 	"html"
 	"io"
 	"math/rand"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -859,6 +864,17 @@ func (c *Client) downloadGeneratedImage(ctx context.Context, rawURL, cookieHeade
 	if err != nil || parsedImageURL.Scheme != "https" || !isTrustedGoogleMediaHost(parsedImageURL.Hostname()) {
 		return "", fmt.Errorf("refusing generated-image download from untrusted host")
 	}
+
+	cdpURL := os.Getenv("GEMINI_CDP_URL")
+	if cdpURL == "" {
+		cdpURL = "http://127.0.0.1:9225"
+	}
+	if b64, cdpErr := downloadGeneratedImageViaCDP(ctx, cdpURL, rawURL); cdpErr == nil && b64 != "" {
+		return b64, nil
+	} else if cdpErr != nil && c.log != nil {
+		c.log.Debug("CDP image download failed, falling back to direct HTTP", zap.Error(cdpErr))
+	}
+
 	client := generatedImageHTTPClient(cookieHeader)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, imageURL, nil)
 	if err != nil {
@@ -885,6 +901,248 @@ func (c *Client) downloadGeneratedImage(ctx context.Context, rawURL, cookieHeade
 		return "", fmt.Errorf("generated image exceeds %d byte limit", maxGeneratedImageBytes)
 	}
 	return base64.StdEncoding.EncodeToString(body), nil
+}
+
+type cdpConn struct {
+	conn net.Conn
+	br   *bufio.Reader
+}
+
+func newCDPConn(rawWSURL string) (*cdpConn, error) {
+	u, err := url.Parse(rawWSURL)
+	if err != nil {
+		return nil, err
+	}
+	host := u.Host
+	if !strings.Contains(host, ":") {
+		host += ":80"
+	}
+	conn, err := net.DialTimeout("tcp", host, 5*time.Second)
+	if err != nil {
+		return nil, err
+	}
+
+	nonce := make([]byte, 16)
+	crand.Read(nonce)
+	secKey := base64.StdEncoding.EncodeToString(nonce)
+
+	req := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: %s\r\nSec-WebSocket-Version: 13\r\n\r\n",
+		u.RequestURI(), u.Host, secKey)
+	if _, err := conn.Write([]byte(req)); err != nil {
+		conn.Close()
+		return nil, err
+	}
+
+	br := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(br, &http.Request{Method: "GET"})
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		conn.Close()
+		return nil, fmt.Errorf("websocket handshake returned status %d", resp.StatusCode)
+	}
+
+	return &cdpConn{conn: conn, br: br}, nil
+}
+
+func (c *cdpConn) send(payload []byte) error {
+	var buf bytes.Buffer
+	buf.WriteByte(0x81) // FIN + text opcode
+	l := len(payload)
+	mask := []byte{0x12, 0x34, 0x56, 0x78}
+	if l < 126 {
+		buf.WriteByte(byte(0x80 | l))
+	} else if l <= 65535 {
+		buf.WriteByte(byte(0x80 | 126))
+		binary.Write(&buf, binary.BigEndian, uint16(l))
+	} else {
+		buf.WriteByte(byte(0x80 | 127))
+		binary.Write(&buf, binary.BigEndian, uint64(l))
+	}
+	buf.Write(mask)
+
+	masked := make([]byte, l)
+	for i := 0; i < l; i++ {
+		masked[i] = payload[i] ^ mask[i%4]
+	}
+	buf.Write(masked)
+
+	_, err := c.conn.Write(buf.Bytes())
+	return err
+}
+
+func (c *cdpConn) recv() ([]byte, error) {
+	for {
+		b0, err := c.br.ReadByte()
+		if err != nil {
+			return nil, err
+		}
+		b1, err := c.br.ReadByte()
+		if err != nil {
+			return nil, err
+		}
+		opcode := b0 & 0x0f
+		isMasked := (b1 & 0x80) != 0
+		length := int(b1 & 0x7f)
+
+		if length == 126 {
+			var l uint16
+			binary.Read(c.br, binary.BigEndian, &l)
+			length = int(l)
+		} else if length == 127 {
+			var l uint64
+			binary.Read(c.br, binary.BigEndian, &l)
+			length = int(l)
+		}
+
+		var mask [4]byte
+		if isMasked {
+			io.ReadFull(c.br, mask[:])
+		}
+
+		payload := make([]byte, length)
+		if _, err := io.ReadFull(c.br, payload); err != nil {
+			return nil, err
+		}
+
+		if isMasked {
+			for i := 0; i < length; i++ {
+				payload[i] ^= mask[i%4]
+			}
+		}
+
+		if opcode == 0x01 { // text frame
+			return payload, nil
+		}
+		if opcode == 0x08 { // close frame
+			return nil, io.EOF
+		}
+	}
+}
+
+func (c *cdpConn) call(id int, method string, params map[string]interface{}) (map[string]interface{}, error) {
+	reqBody := map[string]interface{}{
+		"id":     id,
+		"method": method,
+		"params": params,
+	}
+	data, _ := json.Marshal(reqBody)
+	if err := c.send(data); err != nil {
+		return nil, err
+	}
+	for {
+		respData, err := c.recv()
+		if err != nil {
+			return nil, err
+		}
+		var msg map[string]interface{}
+		if err := json.Unmarshal(respData, &msg); err != nil {
+			continue
+		}
+		if msgID, ok := msg["id"].(float64); ok && int(msgID) == id {
+			if errObj, ok := msg["error"].(map[string]interface{}); ok {
+				return nil, fmt.Errorf("cdp error: %v", errObj["message"])
+			}
+			if res, ok := msg["result"].(map[string]interface{}); ok {
+				return res, nil
+			}
+			return msg, nil
+		}
+	}
+}
+
+func downloadGeneratedImageViaCDP(ctx context.Context, cdpBaseURL, rawURL string) (string, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", strings.TrimSuffix(cdpBaseURL, "/")+"/json/list", nil)
+	if err != nil {
+		return "", err
+	}
+	httpResp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return "", err
+	}
+	defer httpResp.Body.Close()
+
+	var targets []map[string]interface{}
+	if err := json.NewDecoder(httpResp.Body).Decode(&targets); err != nil {
+		return "", err
+	}
+
+	var target map[string]interface{}
+	for _, t := range targets {
+		if u, ok := t["url"].(string); ok && strings.Contains(u, "gemini.google.com") {
+			target = t
+			break
+		}
+	}
+	if target == nil {
+		return "", fmt.Errorf("no gemini page found in cdp")
+	}
+
+	wsURL, ok := target["webSocketDebuggerUrl"].(string)
+	if !ok || wsURL == "" {
+		return "", fmt.Errorf("no websocket debugger url in cdp target")
+	}
+	frameID, ok := target["id"].(string)
+	if !ok || frameID == "" {
+		return "", fmt.Errorf("no frame id in cdp target")
+	}
+
+	client, err := newCDPConn(wsURL)
+	if err != nil {
+		return "", err
+	}
+	defer client.conn.Close()
+
+	currentURL := rawURL
+	if !strings.Contains(currentURL, "=s") {
+		currentURL = strings.TrimSuffix(currentURL, "/") + "=s1024-rj?authuser=" + AuthUser + "&alr=yes"
+	}
+
+	for step := 1; step <= 4; step++ {
+		res, err := client.call(step, "Network.loadNetworkResource", map[string]interface{}{
+			"frameId": frameID,
+			"url":     currentURL,
+			"options": map[string]interface{}{
+				"disableCache":       true,
+				"includeCredentials": true,
+			},
+		})
+		if err != nil {
+			return "", err
+		}
+		resource, ok := res["resource"].(map[string]interface{})
+		if !ok {
+			return "", fmt.Errorf("invalid resource in cdp response")
+		}
+		streamHandle, ok := resource["stream"].(string)
+		if !ok || streamHandle == "" {
+			return "", fmt.Errorf("no stream handle in cdp resource")
+		}
+
+		readRes, err := client.call(step+100, "IO.read", map[string]interface{}{
+			"handle": streamHandle,
+		})
+		if err != nil {
+			return "", err
+		}
+		data, ok := readRes["data"].(string)
+		if !ok {
+			return "", fmt.Errorf("invalid data in cdp io.read")
+		}
+
+		headers, _ := resource["headers"].(map[string]interface{})
+		contentType, _ := headers["content-type"].(string)
+		if strings.HasPrefix(contentType, "image/") {
+			if isB64, _ := readRes["base64Encoded"].(bool); isB64 {
+				return data, nil
+			}
+			return base64.StdEncoding.EncodeToString([]byte(data)), nil
+		}
+		currentURL = strings.TrimSpace(data)
+	}
+	return "", fmt.Errorf("cdp image download exceeded redirect hops")
 }
 
 // webModelIDs maps catalog model IDs onto internal Gemini Web model hashes

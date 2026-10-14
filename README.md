@@ -187,6 +187,7 @@ See [Browser chats & real model selection](docs/browser-chats.md) for continuing
 | `GEMINI_1PSIDTS`          | Conditional | —       | Timestamp cookie; omit when `GEMINI_COOKIE_SYNC_FILE` is used |
 | `GEMINI_COOKIE_SYNC_FILE` | ❌ No    | —       | JSON file with live browser cookies, re-read before each RPC |
 | `GEMINI_AUTH_USER`        | ❌ No    | `1`     | Google account index (`/u/N/`) for multi-login browser profiles |
+| `GEMINI_CDP_URL`          | ❌ No    | `http://127.0.0.1:9225` | Chrome DevTools Protocol URL for automated in-browser CDN asset fetching |
 | `GEMINI_BROWSER_CHATS_ENABLED` | ❌ No | `false` | Expose `/gemini/web/*` browser chat continuation API |
 | `GEMINI_BROWSER_CHATS_API_KEY` | Conditional | — | API key (min 32 chars) required when browser chats are enabled |
 | `GEMINI_REFRESH_INTERVAL` | ❌ No    | `30`    | Cookie rotation interval (minutes)                 |

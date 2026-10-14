@@ -185,6 +185,8 @@ func (s *OpenAIService) CreateImageGeneration(ctx context.Context, req dto.Image
 	opts := []providers.GenerateOption{}
 	if req.Model != "" {
 		opts = append(opts, providers.WithModel(req.Model))
+	} else {
+		opts = append(opts, providers.WithModel("gemini-4-argon"))
 	}
 
 	inputFiles, err := inputFilesFromImageGenerationRequest(req.Image)
