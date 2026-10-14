@@ -1129,26 +1129,37 @@ func downloadGeneratedImageViaCDP(ctx context.Context, cdpBaseURL, rawURL string
 			return "", fmt.Errorf("no stream handle in cdp resource")
 		}
 
-		readRes, err := client.call(step+100, "IO.read", map[string]interface{}{
-			"handle": streamHandle,
-		})
-		if err != nil {
-			return "", err
+		var fullData bytes.Buffer
+		var isB64 bool
+		subID := 0
+		for {
+			subID++
+			readRes, err := client.call(step*1000+subID, "IO.read", map[string]interface{}{
+				"handle": streamHandle,
+			})
+			if err != nil {
+				return "", err
+			}
+			chunk, _ := readRes["data"].(string)
+			fullData.WriteString(chunk)
+			if b, ok := readRes["base64Encoded"].(bool); ok && b {
+				isB64 = true
+			}
+			if eof, ok := readRes["eof"].(bool); ok && eof {
+				break
+			}
 		}
-		data, ok := readRes["data"].(string)
-		if !ok {
-			return "", fmt.Errorf("invalid data in cdp io.read")
-		}
+		_, _ = client.call(step*1000+999, "IO.close", map[string]interface{}{"handle": streamHandle})
 
 		headers, _ := resource["headers"].(map[string]interface{})
 		contentType, _ := headers["content-type"].(string)
 		if strings.HasPrefix(contentType, "image/") {
-			if isB64, _ := readRes["base64Encoded"].(bool); isB64 {
-				return data, nil
+			if isB64 {
+				return fullData.String(), nil
 			}
-			return base64.StdEncoding.EncodeToString([]byte(data)), nil
+			return base64.StdEncoding.EncodeToString(fullData.Bytes()), nil
 		}
-		currentURL = strings.TrimSpace(data)
+		currentURL = strings.TrimSpace(fullData.String())
 	}
 	return "", fmt.Errorf("cdp image download exceeded redirect hops")
 }
