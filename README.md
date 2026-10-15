@@ -163,7 +163,7 @@ Your Gemini Web To API is running at `http://localhost:4981` 🎉
 - 🔌 **Drop-in Replacement**: Works with existing OpenAI / Claude / Gemini SDKs
 - 🔄 **Smart Session Management**: Auto-rotates cookies to keep sessions alive
 - ⚡ **High Performance**: Built with Go and Fiber for speed
-- 🔮 **Gemini 4 Argon & Thinking Tiers**: Native support for frontier `gemini-4-argon` and dynamic reasoning selectors (2, 4–7, 8, 9, 12, 14, 40)
+- 🔮 **Gemini 4 Argon & Thinking Tiers**: Native support for frontier `gemini-4-argon`, unlocked jailbreak variant `gemini-4-argon-unlocked`, and dynamic reasoning selectors (2, 4–7, 8, 9, 12, 14, 40)
 - 🌐 **Live Web Grounding**: Real-time Google Search grounding enabled by default
 - 🐳 **Production Ready**: Docker Compose support, Scalar UI, health checks
 - 📝 **Well Documented**: Interactive API docs at `/docs`
