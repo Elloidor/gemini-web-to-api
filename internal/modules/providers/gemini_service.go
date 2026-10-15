@@ -1129,8 +1129,7 @@ func downloadGeneratedImageViaCDP(ctx context.Context, cdpBaseURL, rawURL string
 			return "", fmt.Errorf("no stream handle in cdp resource")
 		}
 
-		var fullData bytes.Buffer
-		var isB64 bool
+		var rawBytes bytes.Buffer
 		subID := 0
 		for {
 			subID++
@@ -1141,9 +1140,16 @@ func downloadGeneratedImageViaCDP(ctx context.Context, cdpBaseURL, rawURL string
 				return "", err
 			}
 			chunk, _ := readRes["data"].(string)
-			fullData.WriteString(chunk)
-			if b, ok := readRes["base64Encoded"].(bool); ok && b {
-				isB64 = true
+			isB64, _ := readRes["base64Encoded"].(bool)
+			if isB64 {
+				decoded, err := base64.StdEncoding.DecodeString(chunk)
+				if err == nil {
+					rawBytes.Write(decoded)
+				} else {
+					rawBytes.WriteString(chunk)
+				}
+			} else {
+				rawBytes.WriteString(chunk)
 			}
 			if eof, ok := readRes["eof"].(bool); ok && eof {
 				break
@@ -1154,12 +1160,9 @@ func downloadGeneratedImageViaCDP(ctx context.Context, cdpBaseURL, rawURL string
 		headers, _ := resource["headers"].(map[string]interface{})
 		contentType, _ := headers["content-type"].(string)
 		if strings.HasPrefix(contentType, "image/") {
-			if isB64 {
-				return fullData.String(), nil
-			}
-			return base64.StdEncoding.EncodeToString(fullData.Bytes()), nil
+			return base64.StdEncoding.EncodeToString(rawBytes.Bytes()), nil
 		}
-		currentURL = strings.TrimSpace(fullData.String())
+		currentURL = strings.TrimSpace(rawBytes.String())
 	}
 	return "", fmt.Errorf("cdp image download exceeded redirect hops")
 }

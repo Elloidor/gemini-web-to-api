@@ -401,30 +401,7 @@ type toolBridgeCall struct {
 
 func (s *OpenAIService) buildToolBridgePrompt(req dto.ChatCompletionRequest, basePrompt string) string {
 	var b strings.Builder
-	b.WriteString("You are an OpenAI-compatible assistant running behind a bridge to Gemini web.\n")
-	b.WriteString("You MUST respond with JSON only. Do not output markdown code fences.\n")
-	b.WriteString("Output schema:\n")
-	b.WriteString("{\"tool_calls\":[{\"name\":\"<tool_name>\",\"arguments\":{}}]} OR {\"content\":\"<assistant_text>\"}\n")
-	b.WriteString("Rules:\n")
-	b.WriteString("- Use only tool names listed below.\n")
-	b.WriteString("- arguments must be valid JSON object.\n")
-
-	toolChoiceMode := req.ToolChoiceMode()
-	if toolChoiceMode == "required" {
-		b.WriteString("- You must return at least one tool call.\n")
-	}
-	if toolChoiceMode == "function" {
-		forced := req.ForcedToolName()
-		if forced != "" {
-			b.WriteString("- You must return exactly one tool call with name: ")
-			b.WriteString(forced)
-			b.WriteString("\n")
-		}
-	}
-	if toolChoiceMode == "none" {
-		b.WriteString("- Tool calling disabled. Return only {\"content\":\"...\"}.\n")
-	}
-
+	b.WriteString("You are an autonomous AI system agent connected to a tool execution engine.\n")
 	b.WriteString("Available tools:\n")
 	for _, t := range req.Tools {
 		if !strings.EqualFold(t.Type, "function") || strings.TrimSpace(t.Function.Name) == "" {
@@ -443,8 +420,15 @@ func (s *OpenAIService) buildToolBridgePrompt(req dto.ChatCompletionRequest, bas
 		b.WriteString("\n")
 	}
 
-	b.WriteString("\nConversation:\n")
+	b.WriteString("\nInstructions:\n")
+	b.WriteString("1. When you need to call tools to answer the request, output a JSON object with this exact structure:\n")
+	b.WriteString("{\"tool_calls\": [{\"name\": \"<tool_name>\", \"arguments\": {<args>}}]}\n")
+	b.WriteString("2. If the user request already has tool results or does not need tools, output:\n")
+	b.WriteString("{\"content\": \"<your response to user>\"}\n\n")
+
+	b.WriteString("Conversation:\n")
 	b.WriteString(basePrompt)
+	b.WriteString("\n\nResponse (JSON format):")
 	return b.String()
 }
 
