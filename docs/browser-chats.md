@@ -69,6 +69,7 @@ Verified model hashes (boq_assistant-bard-web-server_20260910.05_p2):
 | `gemini-3-flash-thinking-plus` | `e051ce1aa80aa576` | 2 |
 | `gemini-3-pro-plus` / `-advanced` | `e6fa609c3fa255c0` | 3 |
 | `gemini-4-argon` / `gemini-argon` | `95a4c0abcba24364` | 8 |
+| `gemini-4-argon-unlocked` | `95a4c0abcba24364` | 8 (Jailbreak / Unrestricted) |
 | `gemini-argon-deep-think` | `95a4c0abcba24364` | 12 |
 | `gemini-argon-balanced` | `95a4c0abcba24364` | 4 |
 | `gemini-selector-<N>` | `95a4c0abcba24364` | N (2, 4–7, 8, 9, 12, 14, 20, 40) |

@@ -3,6 +3,7 @@ package openai
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -18,6 +19,9 @@ import (
 )
 
 var imagePlaceholderRegex = regexp.MustCompile(`(?i)https?://googleusercontent\.com/image_generation_content/\d+`)
+
+//go:embed templates/argon_jailbreak.txt
+var argonJailbreakTemplate string
 
 type OpenAIService struct {
 	client *providers.Client
@@ -71,6 +75,10 @@ func (s *OpenAIService) CreateChatCompletion(ctx context.Context, req dto.ChatCo
 
 	if req.HasToolsEnabled() {
 		prompt = s.buildToolBridgePrompt(req, prompt)
+	}
+
+	if s.isUnlockedModel(req.Model) {
+		prompt = s.buildUnlockedPrompt(prompt)
 	}
 
 	opts := []providers.GenerateOption{}
@@ -599,4 +607,20 @@ func normalizeArguments(raw json.RawMessage) string {
 		return "{}"
 	}
 	return compact.String()
+}
+
+func (s *OpenAIService) isUnlockedModel(model string) bool {
+	return strings.Contains(strings.ToLower(model), "unlocked")
+}
+
+func (s *OpenAIService) buildUnlockedPrompt(basePrompt string) string {
+	trimmed := strings.TrimSpace(basePrompt)
+	if strings.HasPrefix(trimmed, "User: ") || strings.HasPrefix(trimmed, "System: ") || strings.Contains(trimmed, "\nUser: ") {
+		formatted := strings.ReplaceAll(trimmed, "\nUser: ", "\nLewis: ")
+		if strings.HasPrefix(formatted, "User: ") {
+			formatted = "Lewis: " + strings.TrimPrefix(formatted, "User: ")
+		}
+		return argonJailbreakTemplate + "\n\n" + formatted
+	}
+	return argonJailbreakTemplate + "\n\nLewis: " + trimmed
 }

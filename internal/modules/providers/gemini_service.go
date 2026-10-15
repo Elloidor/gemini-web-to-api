@@ -1192,6 +1192,8 @@ var webModelIDs = map[string]struct {
 	"gemini-advanced":                  {id: "e6fa609c3fa255c0", selector: 3},
 	"gemini-3-flash-preview":           {id: "fbb127bbb056c959", selector: 1},
 	"gemini-4-argon":                   {id: "95a4c0abcba24364", selector: 8},
+	"gemini-4-argon-unlocked":          {id: "95a4c0abcba24364", selector: 8},
+	"gemini-argon-unlocked":            {id: "95a4c0abcba24364", selector: 8},
 	"gemini-argon":                     {id: "95a4c0abcba24364", selector: 8},
 	"gemini-4":                         {id: "95a4c0abcba24364", selector: 8},
 	"gemini-argon-deep-think":          {id: "95a4c0abcba24364", selector: 12},
@@ -1367,6 +1369,7 @@ func (c *Client) IsHealthy() bool {
 
 var curatedModels = []string{
 	"gemini-4-argon",
+	"gemini-4-argon-unlocked",
 	"gemini-argon-deep-think",
 	"gemini-argon-balanced",
 	"gemini-3-flash-thinking",
